@@ -1,0 +1,212 @@
+use crate::block::Block;
+use crate::params::{
+    BLOCK_TIME, DIFFICULTY_ADJUSTMENT_INTERVAL, DIFFICULTY_START, HASH_SIZE, MAX_DIFFICULTY,
+    MIN_DIFFICULTY, MIN_DIFFICULTY_TIMESPAN_FACTOR, PROOF_OF_WORK_HASH_SIZE,
+};
+use crate::types::{BlockHash, BlockHeight, Hash, Height, PreviousHash, ProofOfWorkHash};
+use argon2::{Algorithm, Argon2, Params, Version};
+
+use super::error::ConsensusError;
+
+const ARGON2_POW_SALT: &[u8] = b"paquscore-pow-v1";
+const ARGON2_POW_MEMORY_KIB: u32 = 32;
+const ARGON2_POW_TIME_COST: u32 = 1;
+const ARGON2_POW_PARALLELISM: u32 = 1;
+const ARGON2_POW_OUTPUT_LEN: usize = 32;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ConsensusConfig {
+    pub difficulty: u32,
+}
+
+impl Default for ConsensusConfig {
+    fn default() -> Self {
+        Self {
+            difficulty: DIFFICULTY_START,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Consensus {
+    pub config: ConsensusConfig,
+}
+
+impl Consensus {
+    pub fn new(config: ConsensusConfig) -> Result<Self, ConsensusError> {
+        if config.difficulty < MIN_DIFFICULTY || config.difficulty > MAX_DIFFICULTY {
+            return Err(ConsensusError::InvalidDifficulty);
+        }
+
+        Ok(Self { config })
+    }
+
+    pub fn with_default_config() -> Self {
+        Self::new(ConsensusConfig::default()).expect("default consensus config should be valid")
+    }
+
+    pub fn validate_genesis_block(&self, block: &Block) -> Result<(), ConsensusError> {
+        block.validate()?;
+
+        if block.height() != Height(0) || block.previous_hash() != Hash([0; HASH_SIZE]) {
+            return Err(ConsensusError::InvalidHeight);
+        }
+
+        self.validate_proof_of_work(block)
+    }
+
+    pub fn validate_next_block(
+        &self,
+        block: &Block,
+        tip_height: BlockHeight,
+        tip_hash: BlockHash,
+    ) -> Result<(), ConsensusError> {
+        block.validate()?;
+        self.validate_next_block_linkage(block, tip_height, tip_hash)?;
+        self.validate_proof_of_work(block)
+    }
+
+    pub fn validate_next_block_with_tip(
+        &self,
+        block: &Block,
+        tip: &Block,
+    ) -> Result<(), ConsensusError> {
+        block.validate()?;
+        self.validate_next_block_linkage(block, tip.height(), tip.hash())?;
+        if block.timestamp() < tip.timestamp() {
+            return Err(ConsensusError::InvalidTimestamp);
+        }
+        self.validate_proof_of_work(block)
+    }
+
+    fn validate_next_block_linkage(
+        &self,
+        block: &Block,
+        tip_height: BlockHeight,
+        tip_hash: BlockHash,
+    ) -> Result<(), ConsensusError> {
+        if block.height().0 != tip_height.0.saturating_add(1) {
+            return Err(ConsensusError::InvalidHeight);
+        }
+
+        if block.previous_hash() != tip_hash {
+            return Err(ConsensusError::InvalidPreviousHash);
+        }
+
+        Ok(())
+    }
+
+    pub fn validate_candidate_block(
+        &self,
+        block: &Block,
+        tip: Option<(BlockHeight, BlockHash)>,
+    ) -> Result<(), ConsensusError> {
+        match tip {
+            Some((tip_height, tip_hash)) => self.validate_next_block(block, tip_height, tip_hash),
+            None => self.validate_genesis_block(block),
+        }
+    }
+
+    pub fn validate_proof_of_work(&self, block: &Block) -> Result<(), ConsensusError> {
+        if self.config.difficulty == 0 {
+            return Ok(());
+        }
+
+        let hash = argon2_proof_of_work_hash(block)?;
+        self.validate_proof_of_work_hash_with_difficulty(&hash, block.difficulty())
+    }
+
+    pub fn validate_proof_of_work_hash(
+        &self,
+        hash: &ProofOfWorkHash,
+    ) -> Result<(), ConsensusError> {
+        self.validate_proof_of_work_hash_with_difficulty(hash, self.config.difficulty)
+    }
+
+    pub fn validate_proof_of_work_hash_with_difficulty(
+        &self,
+        hash: &ProofOfWorkHash,
+        difficulty: u32,
+    ) -> Result<(), ConsensusError> {
+        if difficulty < MIN_DIFFICULTY || difficulty > MAX_DIFFICULTY {
+            return Err(ConsensusError::InvalidDifficulty);
+        }
+
+        if hash_meets_difficulty(hash, difficulty) {
+            Ok(())
+        } else {
+            Err(ConsensusError::InsufficientProofOfWork)
+        }
+    }
+
+    pub fn proof_of_work_hash(&self, block: &Block) -> Result<ProofOfWorkHash, ConsensusError> {
+        argon2_proof_of_work_hash(block)
+    }
+
+    pub fn retarget_difficulty(
+        &self,
+        current_difficulty: u32,
+        first_timestamp: u64,
+        last_timestamp: u64,
+        block_count: u64,
+    ) -> Result<u32, ConsensusError> {
+        if current_difficulty < MIN_DIFFICULTY || current_difficulty > MAX_DIFFICULTY {
+            return Err(ConsensusError::InvalidDifficulty);
+        }
+
+        if block_count < DIFFICULTY_ADJUSTMENT_INTERVAL {
+            return Ok(current_difficulty);
+        }
+
+        let target_timespan = BLOCK_TIME as u64 * block_count;
+        let min_timespan = target_timespan / MIN_DIFFICULTY_TIMESPAN_FACTOR;
+        let max_timespan = target_timespan * MIN_DIFFICULTY_TIMESPAN_FACTOR;
+        let actual_timespan = last_timestamp
+            .saturating_sub(first_timestamp)
+            .clamp(min_timespan.max(1), max_timespan.max(1));
+
+        let mut next = current_difficulty;
+        if actual_timespan < target_timespan {
+            next = next.saturating_add(1);
+        } else if actual_timespan > target_timespan {
+            next = next.saturating_sub(1);
+        }
+
+        Ok(next.clamp(MIN_DIFFICULTY, MAX_DIFFICULTY))
+    }
+}
+
+fn argon2_proof_of_work_hash(block: &Block) -> Result<ProofOfWorkHash, ConsensusError> {
+    let params = Params::new(
+        ARGON2_POW_MEMORY_KIB,
+        ARGON2_POW_TIME_COST,
+        ARGON2_POW_PARALLELISM,
+        Some(ARGON2_POW_OUTPUT_LEN),
+    )
+    .map_err(|_| ConsensusError::InvalidProofOfWorkParameters)?;
+    let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
+    let header_bytes =
+        borsh::to_vec(&block.header).expect("block header serialization should not fail");
+    let mut output = [0_u8; PROOF_OF_WORK_HASH_SIZE];
+
+    argon2
+        .hash_password_into(&header_bytes, ARGON2_POW_SALT, &mut output)
+        .map_err(|_| ConsensusError::InvalidProofOfWorkParameters)?;
+
+    Ok(ProofOfWorkHash(output))
+}
+
+fn hash_meets_difficulty(hash: &ProofOfWorkHash, difficulty: u32) -> bool {
+    let zero_bytes = difficulty as usize;
+
+    if zero_bytes > hash.0.len() {
+        return false;
+    }
+
+    hash.0.iter().take(zero_bytes).all(|byte| *byte == 0)
+}
+
+#[allow(dead_code)]
+fn _previous_hash_type_marker(hash: PreviousHash) -> PreviousHash {
+    hash
+}
