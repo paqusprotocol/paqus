@@ -1,10 +1,10 @@
-use crate::block::Block;
+use crate::block::{Block, GenesisAllocation};
 use crate::genesis::error::GenesisError;
 use crate::ledger::Ledger;
-use crate::params::{GENESIS_PREMINE, HASH_SIZE};
-use crate::types::{Address, Amount, Hash, Height, Nonce};
+use crate::params::GENESIS_PREMINE;
+use crate::types::{Address, Amount};
 
-pub const GENESIS_PREMINE_ADDRESS: Address = Address([0; 20]);
+pub const GENESIS_PREMINE_ADDRESS: Address = Address::ZERO;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct GenesisConfig {
@@ -18,22 +18,19 @@ pub fn genesis_premine_amount() -> Result<Amount, GenesisError> {
 }
 
 pub fn create_genesis_block(config: GenesisConfig) -> Block {
-    Block::new(
-        Height(0),
-        Hash([0; HASH_SIZE]),
+    Block::genesis(
         config.miner_address,
         config.timestamp,
-        Nonce(0),
-        vec![],
+        vec![GenesisAllocation::new(
+            config.premine_address,
+            genesis_premine_amount().expect("genesis premine amount should be valid"),
+        )],
     )
 }
 
 pub fn create_genesis_ledger(config: GenesisConfig) -> Result<Ledger, GenesisError> {
     let mut ledger = Ledger::new();
-    let premine = genesis_premine_amount()?;
-
-    ledger.create_account(config.premine_address, premine)?;
-    ledger.chain.insert_block(create_genesis_block(config))?;
+    ledger.apply_block(create_genesis_block(config))?;
 
     Ok(ledger)
 }

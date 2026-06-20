@@ -22,13 +22,19 @@ fn signed_transaction(nonce: u64) -> SignedTransaction {
 }
 
 fn block(height: u64, previous_hash: Hash) -> Block {
+    let transactions = if height == 0 && previous_hash == Hash([0; 64]) {
+        vec![]
+    } else {
+        vec![signed_transaction(height)]
+    };
+
     Block::new(
         Height(height),
         previous_hash,
         Address([9; 20]),
         1_700_000_000 + height,
         Nonce(0),
-        vec![signed_transaction(height)],
+        transactions,
     )
 }
 

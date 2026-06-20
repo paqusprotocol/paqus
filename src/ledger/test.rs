@@ -15,6 +15,17 @@ fn miner() -> Address {
     Address([9; 20])
 }
 
+fn empty_genesis() -> Block {
+    Block::new(
+        Height(0),
+        Hash([0; 64]),
+        miner(),
+        1_700_000_000,
+        Nonce(0),
+        vec![],
+    )
+}
+
 fn signed_transaction(nonce: u64, to: Address, amount: u32) -> SignedTransaction {
     let keypair = generate_keypair();
     let from = address_from_public_key(&keypair.public_key);
@@ -91,14 +102,23 @@ fn caps_minted_subsidy_at_remaining_supply() {
         .unwrap();
     ledger.create_account(receiver, Amount(0)).unwrap();
     ledger.create_account(miner, Amount(0)).unwrap();
-
-    let transaction =
-        signed_transaction_from(&keypair.secret_key, keypair.public_key, receiver, 1, 0);
-    let mut block = Block::new(
+    let genesis = Block::new(
         Height(0),
         Hash([0; 64]),
         miner,
         1_700_000_000,
+        Nonce(0),
+        vec![],
+    );
+    ledger.apply_block(genesis).unwrap();
+
+    let transaction =
+        signed_transaction_from(&keypair.secret_key, keypair.public_key, receiver, 1, 0);
+    let mut block = Block::new(
+        Height(1),
+        ledger.tip_hash().unwrap(),
+        miner,
+        1_700_000_001,
         Nonce(0),
         vec![transaction],
     );
@@ -161,12 +181,22 @@ fn applies_genesis_block_and_tracks_tip() {
     let mut ledger = Ledger::new();
     ledger.create_account(sender, Amount(100)).unwrap();
     ledger.create_account(address(2), Amount(5)).unwrap();
-
-    let mut block = Block::new(
+    ledger.create_account(miner(), Amount(0)).unwrap();
+    let genesis = Block::new(
         Height(0),
         Hash([0; 64]),
         miner(),
         1_700_000_000,
+        Nonce(0),
+        vec![],
+    );
+    ledger.apply_block(genesis).unwrap();
+
+    let mut block = Block::new(
+        Height(1),
+        ledger.tip_hash().unwrap(),
+        miner(),
+        1_700_000_001,
         Nonce(0),
         vec![signed],
     );
@@ -174,17 +204,17 @@ fn applies_genesis_block_and_tracks_tip() {
     let block_hash = block.hash();
 
     assert_eq!(ledger.apply_block(block), Ok(()));
-    assert_eq!(ledger.tip_height(), Some(Height(0)));
+    assert_eq!(ledger.tip_height(), Some(Height(1)));
     assert_eq!(ledger.tip_hash(), Some(block_hash));
     assert_eq!(ledger.balance(&sender), Some(Amount(88)));
     assert_eq!(ledger.balance(&address(2)), Some(Amount(15)));
     assert_eq!(
         ledger.balance(&miner()),
-        Some(Amount(block_reward(Height(0)).0 + crate::params::BASE_FEE))
+        Some(Amount(block_reward(Height(1)).0 + crate::params::BASE_FEE))
     );
     assert_eq!(
         ledger.total_supply(),
-        Ok(Amount(105 + block_reward(Height(0)).0))
+        Ok(Amount(105 + block_reward(Height(1)).0))
     );
 }
 
@@ -215,15 +245,7 @@ fn rejects_block_with_wrong_previous_hash() {
     ledger.create_account(sender, Amount(100)).unwrap();
     ledger.create_account(address(2), Amount(5)).unwrap();
 
-    let genesis = Block::new(
-        Height(0),
-        Hash([0; 64]),
-        miner(),
-        1_700_000_000,
-        Nonce(0),
-        vec![signed],
-    );
-    ledger.apply_block(genesis).unwrap();
+    ledger.apply_block(empty_genesis()).unwrap();
 
     let next = Block::new(
         Height(1),
@@ -257,15 +279,17 @@ fn apply_block_is_atomic_when_later_transaction_fails() {
     let mut ledger = Ledger::new();
     ledger.create_account(sender, Amount(100)).unwrap();
     ledger.create_account(receiver, Amount(5)).unwrap();
+    ledger.create_account(miner(), Amount(0)).unwrap();
+    ledger.apply_block(empty_genesis()).unwrap();
 
     let valid = signed_transaction_from(&keypair.secret_key, keypair.public_key, receiver, 10, 0);
     let invalid_nonce =
         signed_transaction_from(&keypair.secret_key, keypair.public_key, receiver, 10, 7);
     let block = Block::new(
-        Height(0),
-        Hash([0; 64]),
+        Height(1),
+        ledger.tip_hash().unwrap(),
         miner(),
-        1_700_000_000,
+        1_700_000_001,
         Nonce(0),
         vec![valid, invalid_nonce],
     );
@@ -279,9 +303,8 @@ fn apply_block_is_atomic_when_later_transaction_fails() {
     assert_eq!(ledger.balance(&sender), Some(Amount(100)));
     assert_eq!(ledger.balance(&receiver), Some(Amount(5)));
     assert_eq!(ledger.account(&sender).unwrap().nonce, Nonce(0));
-    assert_eq!(ledger.balance(&miner()), None);
-    assert_eq!(ledger.tip_height(), None);
-    assert_eq!(ledger.tip_hash(), None);
+    assert_eq!(ledger.balance(&miner()), Some(Amount(0)));
+    assert_eq!(ledger.tip_height(), Some(Height(0)));
 }
 
 #[test]
@@ -291,12 +314,14 @@ fn rejects_block_with_wrong_state_root() {
     let mut ledger = Ledger::new();
     ledger.create_account(sender, Amount(100)).unwrap();
     ledger.create_account(address(2), Amount(5)).unwrap();
+    ledger.create_account(miner(), Amount(0)).unwrap();
+    ledger.apply_block(empty_genesis()).unwrap();
 
     let mut block = Block::new(
-        Height(0),
-        Hash([0; 64]),
+        Height(1),
+        ledger.tip_hash().unwrap(),
         miner(),
-        1_700_000_000,
+        1_700_000_001,
         Nonce(0),
         vec![signed],
     );
@@ -308,7 +333,7 @@ fn rejects_block_with_wrong_state_root() {
             crate::block::BlockError::InvalidStateRoot
         ))
     );
-    assert_eq!(ledger.tip_height(), None);
+    assert_eq!(ledger.tip_height(), Some(Height(0)));
 }
 
 #[test]
@@ -318,12 +343,14 @@ fn calculates_deterministic_state_root_after_block() {
     let mut ledger = Ledger::new();
     ledger.create_account(sender, Amount(100)).unwrap();
     ledger.create_account(address(2), Amount(5)).unwrap();
+    ledger.create_account(miner(), Amount(0)).unwrap();
+    ledger.apply_block(empty_genesis()).unwrap();
 
     let block = Block::new(
-        Height(0),
-        Hash([0; 64]),
+        Height(1),
+        ledger.tip_hash().unwrap(),
         miner(),
-        1_700_000_000,
+        1_700_000_001,
         Nonce(0),
         vec![signed],
     );

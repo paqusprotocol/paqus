@@ -339,6 +339,16 @@ fn creates_candidate_block_from_mempool_transactions() {
     let miner = address(9);
     let mut ledger = ledger_with_accounts(from, to, 25);
     ledger.create_account(miner, Amount(0)).unwrap();
+    ledger
+        .apply_block(Block::new(
+            Height(0),
+            Hash([0; 64]),
+            miner,
+            1_700_000_000,
+            Nonce(0),
+            vec![],
+        ))
+        .unwrap();
     let mut mempool = Mempool::new();
     let transaction = signed_transaction_from(&keypair.secret_key, keypair.public_key, to, 10, 0);
 
@@ -348,8 +358,8 @@ fn creates_candidate_block_from_mempool_transactions() {
         .create_candidate_block(&ledger, miner, 1_700_000_000, Nonce(0), 10)
         .unwrap();
 
-    assert_eq!(block.height(), Height(0));
-    assert_eq!(block.previous_hash(), Hash([0; 64]));
+    assert_eq!(block.height(), Height(1));
+    assert_eq!(block.previous_hash(), ledger.tip_hash().unwrap());
     assert_eq!(block.transaction_count(), 1);
     assert_eq!(
         block.state_root(),

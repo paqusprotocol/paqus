@@ -183,10 +183,30 @@ impl Ledger {
             staged.apply_transaction_at(&transaction.payload, block.height())?;
         }
 
-        let revenue = block.miner_revenue(block_reward(block.height()));
-        staged.credit_miner_fees(block.miner_address(), revenue.fees, block.height())?;
-        let subsidy = staged.mintable_subsidy(revenue.subsidy)?;
-        staged.mint_miner_subsidy(block.miner_address(), subsidy, block.height())?;
+        if block.is_genesis() {
+            for allocation in &block.genesis_allocations {
+                staged.create_account(allocation.to, allocation.amount)?;
+            }
+            return Ok(staged);
+        }
+
+        let coinbase = block.coinbase.as_ref().ok_or(LedgerError::InvalidBlock(
+            crate::block::BlockError::MissingCoinbase,
+        ))?;
+        let expected_fees = block.total_fees();
+        let max_subsidy = block_reward(block.height());
+        if coinbase.to != block.miner_address()
+            || coinbase.fees != expected_fees
+            || coinbase.subsidy.0 > max_subsidy.0
+        {
+            return Err(LedgerError::InvalidBlock(
+                crate::block::BlockError::InvalidCoinbase,
+            ));
+        }
+
+        staged.credit_miner_fees(coinbase.to, coinbase.fees, block.height())?;
+        let subsidy = staged.mintable_subsidy(coinbase.subsidy)?;
+        staged.mint_miner_subsidy(coinbase.to, subsidy, block.height())?;
         Ok(staged)
     }
 

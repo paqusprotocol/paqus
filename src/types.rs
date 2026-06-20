@@ -78,6 +78,10 @@ pub struct Nonce(pub u64);
 )]
 pub struct Address(pub AddressBytes);
 
+impl Address {
+    pub const ZERO: Self = Self([0; ADDRESS_SIZE]);
+}
+
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, BorshSerialize, BorshDeserialize,
 )]

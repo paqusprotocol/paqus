@@ -52,7 +52,7 @@ fn rejects_unsupported_block_version() {
 }
 
 #[test]
-fn rejects_empty_blocks() {
+fn validates_coinbase_only_blocks() {
     let block = Block::new(
         Height(1),
         Hash([0; 64]),
@@ -62,7 +62,8 @@ fn rejects_empty_blocks() {
         vec![],
     );
 
-    assert_eq!(block.validate(), Err(BlockError::EmptyTransactions));
+    assert_eq!(block.validate(), Ok(()));
+    assert!(block.coinbase.is_some());
 }
 
 #[test]

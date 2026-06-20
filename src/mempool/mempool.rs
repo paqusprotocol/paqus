@@ -1,4 +1,5 @@
-use crate::block::Block;
+use crate::block::{Block, CoinbaseTransaction};
+use crate::consensus::block_reward;
 use crate::ledger::{Ledger, LedgerError};
 use crate::mempool::error::MempoolError;
 use crate::params::{HASH_SIZE, MAX_MEMPOOL_TXS, MEMPOOL_EXPIRY_SECS};
@@ -274,13 +275,32 @@ impl Mempool {
             .unwrap_or(Height(0));
         let previous_hash = ledger.tip_hash().unwrap_or(Hash([0; HASH_SIZE]));
 
-        let mut block = Block::new(
+        let transactions = self.select_for_block(transaction_limit);
+        let fees = crate::types::Amount(
+            transactions
+                .iter()
+                .map(|transaction| transaction.payload.fee.0)
+                .sum(),
+        );
+        let coinbase = if height.0 == 0 && previous_hash == Hash([0; HASH_SIZE]) {
+            None
+        } else {
+            Some(CoinbaseTransaction::new(
+                miner_address,
+                block_reward(height),
+                fees,
+            ))
+        };
+
+        let mut block = Block::with_coinbase(
             height,
             previous_hash,
             miner_address,
+            crate::params::DIFFICULTY_START,
             timestamp,
             nonce,
-            self.select_for_block(transaction_limit),
+            coinbase,
+            transactions,
         );
         let state_root = ledger.state_root_after_block(&block)?;
         block.set_state_root(state_root);

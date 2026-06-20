@@ -103,6 +103,16 @@ fn mines_and_applies_block_from_mempool() {
     ledger.create_account(sender, Amount(25)).unwrap();
     ledger.create_account(address(2), Amount(0)).unwrap();
     ledger.create_account(miner, Amount(0)).unwrap();
+    ledger
+        .apply_block(Block::new(
+            Height(0),
+            Hash([0; 64]),
+            miner,
+            1_700_000_000,
+            Nonce(0),
+            vec![],
+        ))
+        .unwrap();
     let mut node = Node::temporary(
         ledger,
         Consensus {
@@ -112,10 +122,10 @@ fn mines_and_applies_block_from_mempool() {
     .unwrap();
 
     node.submit_transaction(transaction).unwrap();
-    let result = node.mine_block(miner, 1_700_000_000, 2_000, 10).unwrap();
+    let result = node.mine_block(miner, 1_700_000_001, 2_000, 10).unwrap();
 
-    assert_eq!(result.block.height(), Height(0));
-    assert_eq!(node.tip_height(), Some(Height(0)));
+    assert_eq!(result.block.height(), Height(1));
+    assert_eq!(node.tip_height(), Some(Height(1)));
     assert!(node.mempool.is_empty());
     assert_eq!(node.balance(&sender), Some(Amount(13)));
     assert_eq!(node.balance(&address(2)), Some(Amount(10)));
