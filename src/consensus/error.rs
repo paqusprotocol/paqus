@@ -6,6 +6,7 @@ use std::fmt;
 pub enum ConsensusError {
     InvalidBlock(BlockError),
     InvalidDifficulty,
+    UnexpectedDifficulty,
     InvalidProofOfWorkParameters,
     InvalidHeight,
     InvalidPreviousHash,
@@ -18,6 +19,9 @@ impl fmt::Display for ConsensusError {
         match self {
             ConsensusError::InvalidBlock(error) => write!(f, "invalid block: {error}"),
             ConsensusError::InvalidDifficulty => f.write_str("difficulty is outside allowed range"),
+            ConsensusError::UnexpectedDifficulty => {
+                f.write_str("block difficulty does not match expected difficulty")
+            }
             ConsensusError::InvalidProofOfWorkParameters => {
                 f.write_str("proof-of-work parameters are invalid")
             }

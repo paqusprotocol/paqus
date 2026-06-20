@@ -1,6 +1,6 @@
 use super::Node;
-use crate::block::Block;
-use crate::consensus::{Consensus, ConsensusConfig};
+use crate::block::{Block, BlockError};
+use crate::consensus::{Consensus, ConsensusConfig, ConsensusError};
 use crate::crypto::{KeyPair, address_from_public_key, generate_keypair, sign};
 use crate::genesis::{GENESIS_PREMINE_ADDRESS, GenesisConfig};
 use crate::ledger::Ledger;
@@ -103,7 +103,13 @@ fn mines_and_applies_block_from_mempool() {
     ledger.create_account(sender, Amount(25)).unwrap();
     ledger.create_account(address(2), Amount(0)).unwrap();
     ledger.create_account(miner, Amount(0)).unwrap();
-    let mut node = Node::temporary(ledger, Consensus::with_default_config()).unwrap();
+    let mut node = Node::temporary(
+        ledger,
+        Consensus {
+            config: ConsensusConfig { difficulty: 0 },
+        },
+    )
+    .unwrap();
 
     node.submit_transaction(transaction).unwrap();
     let result = node.mine_block(miner, 1_700_000_000, 2_000, 10).unwrap();
@@ -161,6 +167,63 @@ fn stores_side_fork_without_changing_active_tip_when_work_is_lower() {
     assert!(node.apply_block(side).is_ok());
     assert!(node.fork_choice.contains(&side_hash));
     assert_eq!(node.tip_hash(), Some(active_hash));
+}
+
+#[test]
+fn rejects_block_with_unexpected_difficulty() {
+    let genesis = Block::new(
+        Height(0),
+        Hash([0; 64]),
+        address(9),
+        1_700_000_000,
+        Nonce(0),
+        vec![],
+    );
+    let mut ledger = Ledger::new();
+    ledger.chain.insert_block(genesis.clone()).unwrap();
+    let storage = crate::storage::Storage::temporary().unwrap();
+    storage.save_ledger(&ledger).unwrap();
+    let mut node = Node::new(ledger, storage, Consensus::with_default_config());
+    let block = block(1, genesis.hash(), 2, 1);
+
+    let error = node.apply_block(block).unwrap_err();
+
+    assert!(matches!(
+        error,
+        crate::node::NodeError::Consensus(ConsensusError::UnexpectedDifficulty)
+    ));
+}
+
+#[test]
+fn rejects_block_timestamp_too_far_in_future() {
+    let genesis = Block::new(
+        Height(0),
+        Hash([0; 64]),
+        address(9),
+        1_700_000_000,
+        Nonce(0),
+        vec![],
+    );
+    let mut ledger = Ledger::new();
+    ledger.chain.insert_block(genesis.clone()).unwrap();
+    let mut node = Node::temporary(
+        ledger,
+        Consensus {
+            config: ConsensusConfig { difficulty: 0 },
+        },
+    )
+    .unwrap();
+    let mut block = block(1, genesis.hash(), 1, 1);
+    block.header.timestamp = u64::MAX;
+
+    let error = node.apply_block(block).unwrap_err();
+
+    assert!(matches!(
+        error,
+        crate::node::NodeError::Consensus(ConsensusError::InvalidBlock(
+            BlockError::FutureTimestamp
+        ))
+    ));
 }
 
 #[test]

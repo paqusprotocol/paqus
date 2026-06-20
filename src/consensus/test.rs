@@ -1,8 +1,8 @@
 use super::{Consensus, ConsensusConfig, ConsensusError, block_reward, tail_emission_start_height};
-use crate::block::Block;
+use crate::block::{Block, BlockError};
 use crate::params::{
-    BASE_FEE, BLOCK_REWARD, GENESIS_PREMINE, MAX_MINED_SUPPLY, MAX_UNIT_SUPPLY, TAIL_EMISSION,
-    TAIL_EMISSION_START_HEIGHT,
+    BASE_FEE, BLOCK_REWARD, DIFFICULTY_ADJUSTMENT_INTERVAL, GENESIS_PREMINE, MAX_MINED_SUPPLY,
+    MAX_UNIT_SUPPLY, TAIL_EMISSION, TAIL_EMISSION_START_HEIGHT,
 };
 use crate::transaction::{SignedTransaction, Transaction};
 use crate::types::{Address, Amount, Hash, Height, Nonce, ProofOfWorkHash, PublicKey, Signature};
@@ -104,6 +104,22 @@ fn rejects_next_block_timestamp_earlier_than_tip() {
 }
 
 #[test]
+fn rejects_next_block_timestamp_too_far_in_future() {
+    let consensus = Consensus {
+        config: ConsensusConfig { difficulty: 0 },
+    };
+    let genesis = block(0, Hash([0; 64]));
+    let mut next = block(1, genesis.hash());
+    let now = genesis.timestamp();
+    next.header.timestamp = now + crate::params::MAX_FUTURE_TIME as u64 + 1;
+
+    assert_eq!(
+        consensus.validate_next_block_with_tip_at(&next, &genesis, now),
+        Err(ConsensusError::InvalidBlock(BlockError::FutureTimestamp))
+    );
+}
+
+#[test]
 fn rejects_wrong_previous_hash() {
     let consensus = Consensus {
         config: ConsensusConfig { difficulty: 0 },
@@ -155,10 +171,19 @@ fn proof_of_work_hash_is_argon2_based_and_deterministic() {
 fn retargets_difficulty_from_block_timespan() {
     let consensus = Consensus::with_default_config();
 
-    assert_eq!(consensus.retarget_difficulty(2, 0, 600, 10), Ok(3));
-    assert_eq!(consensus.retarget_difficulty(2, 0, 1_800, 10), Ok(1));
-    assert_eq!(consensus.retarget_difficulty(2, 0, 1_200, 10), Ok(2));
-    assert_eq!(consensus.retarget_difficulty(2, 0, 10, 9), Ok(2));
+    assert_eq!(
+        consensus.retarget_difficulty(2, 0, 150, DIFFICULTY_ADJUSTMENT_INTERVAL),
+        Ok(3)
+    );
+    assert_eq!(
+        consensus.retarget_difficulty(2, 0, 450, DIFFICULTY_ADJUSTMENT_INTERVAL),
+        Ok(1)
+    );
+    assert_eq!(
+        consensus.retarget_difficulty(2, 0, 300, DIFFICULTY_ADJUSTMENT_INTERVAL),
+        Ok(2)
+    );
+    assert_eq!(consensus.retarget_difficulty(2, 0, 10, 0), Ok(2));
 }
 
 #[test]

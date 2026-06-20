@@ -278,6 +278,22 @@ fn stores_and_loads_state_snapshot() {
 }
 
 #[test]
+fn difficulty_window_uses_previous_block_for_single_block_interval() {
+    let storage = Storage::temporary().unwrap();
+    let genesis = block(0, Hash([0; 64]));
+    let next = block(1, genesis.hash());
+
+    storage.save_block(&genesis).unwrap();
+    storage.save_block(&next).unwrap();
+
+    assert_eq!(storage.difficulty_window(Height(0), 1).unwrap(), None);
+    assert_eq!(
+        storage.difficulty_window(Height(1), 1).unwrap(),
+        Some((genesis.timestamp(), next.timestamp(), 1, next.difficulty()))
+    );
+}
+
+#[test]
 fn rejects_tampered_state_snapshot_root() {
     let storage = Storage::temporary().unwrap();
     let mut accounts = std::collections::BTreeMap::new();

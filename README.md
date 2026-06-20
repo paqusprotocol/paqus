@@ -2,6 +2,15 @@
 
 Devnet core crate for the Paqus proof-of-work blockchain.
 
+## Disclaimer
+
+Paqus is an independent, non-profit blockchain research and development project.
+It is not affiliated with, endorsed by, sponsored by, or officially connected to
+any other project, company, foundation, token, protocol, or organization that may
+use a similar name, mark, or terminology. Any resemblance in naming is
+coincidental and should not be interpreted as a partnership, endorsement, or
+shared ownership.
+
 This crate contains the core building blocks used by a Paqus full node:
 
 - SHA3-512 block and transaction hashing

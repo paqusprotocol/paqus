@@ -9,9 +9,9 @@ use argon2::{Algorithm, Argon2, Params, Version};
 use super::error::ConsensusError;
 
 const ARGON2_POW_SALT: &[u8] = b"paquscore-pow-v1";
-const ARGON2_POW_MEMORY_KIB: u32 = 32;
+const ARGON2_POW_MEMORY_KIB: u32 = 64 * 1024;
 const ARGON2_POW_TIME_COST: u32 = 1;
-const ARGON2_POW_PARALLELISM: u32 = 1;
+const ARGON2_POW_PARALLELISM: u32 = 4;
 const ARGON2_POW_OUTPUT_LEN: usize = 32;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -46,7 +46,11 @@ impl Consensus {
     }
 
     pub fn validate_genesis_block(&self, block: &Block) -> Result<(), ConsensusError> {
-        block.validate()?;
+        self.validate_genesis_block_at(block, block.timestamp())
+    }
+
+    pub fn validate_genesis_block_at(&self, block: &Block, now: u64) -> Result<(), ConsensusError> {
+        block.validate_at(now)?;
 
         if block.height() != Height(0) || block.previous_hash() != Hash([0; HASH_SIZE]) {
             return Err(ConsensusError::InvalidHeight);
@@ -61,7 +65,17 @@ impl Consensus {
         tip_height: BlockHeight,
         tip_hash: BlockHash,
     ) -> Result<(), ConsensusError> {
-        block.validate()?;
+        self.validate_next_block_at(block, tip_height, tip_hash, block.timestamp())
+    }
+
+    pub fn validate_next_block_at(
+        &self,
+        block: &Block,
+        tip_height: BlockHeight,
+        tip_hash: BlockHash,
+        now: u64,
+    ) -> Result<(), ConsensusError> {
+        block.validate_at(now)?;
         self.validate_next_block_linkage(block, tip_height, tip_hash)?;
         self.validate_proof_of_work(block)
     }
@@ -71,7 +85,16 @@ impl Consensus {
         block: &Block,
         tip: &Block,
     ) -> Result<(), ConsensusError> {
-        block.validate()?;
+        self.validate_next_block_with_tip_at(block, tip, block.timestamp())
+    }
+
+    pub fn validate_next_block_with_tip_at(
+        &self,
+        block: &Block,
+        tip: &Block,
+        now: u64,
+    ) -> Result<(), ConsensusError> {
+        block.validate_at(now)?;
         self.validate_next_block_linkage(block, tip.height(), tip.hash())?;
         if block.timestamp() < tip.timestamp() {
             return Err(ConsensusError::InvalidTimestamp);

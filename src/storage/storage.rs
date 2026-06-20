@@ -288,17 +288,18 @@ impl Storage {
         tip_height: BlockHeight,
         window: u64,
     ) -> Result<Option<(u64, u64, u64, u32)>, StorageError> {
+        if window == 0 || tip_height.0 < window {
+            return Ok(None);
+        }
+
         let Some(tip) = self.load_block_by_height(tip_height)? else {
             return Ok(None);
         };
-        let first_height = Height(tip_height.0.saturating_sub(window.saturating_sub(1)));
+        let first_height = Height(tip_height.0 - window);
         let Some(first) = self.load_block_by_height(first_height)? else {
             return Ok(None);
         };
-        let block_count = tip_height
-            .0
-            .saturating_sub(first_height.0)
-            .saturating_add(1);
+        let block_count = tip_height.0.saturating_sub(first_height.0);
 
         Ok(Some((
             first.timestamp(),

@@ -1,6 +1,6 @@
 [package]
 name = "paqus"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "Devnet core primitives for the Paqus proof-of-work blockchain."
 readme = "README.md"

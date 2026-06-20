@@ -12,6 +12,7 @@ use crate::transaction::SignedTransaction;
 use crate::types::{AccountNonce, Address, Amount, Balance, BlockHash, BlockHeight};
 use std::collections::BTreeMap;
 use std::path::Path;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PendingBalance {
@@ -135,7 +136,9 @@ impl Node {
         &mut self,
         transaction: SignedTransaction,
     ) -> Result<BlockHash, NodeError> {
-        Ok(self.mempool.insert_validated(&self.ledger, transaction)?)
+        Ok(self
+            .mempool
+            .insert_validated_at(&self.ledger, transaction, current_unix_timestamp())?)
     }
 
     pub fn apply_block(&mut self, block: Block) -> Result<(), NodeError> {
@@ -263,8 +266,9 @@ impl Node {
     }
 
     fn validate_block_for_known_parent(&self, block: &Block) -> Result<(), NodeError> {
+        let now = current_unix_timestamp();
         if block.height().0 == 0 {
-            self.consensus.validate_genesis_block(block)?;
+            self.consensus.validate_genesis_block_at(block, now)?;
             return Ok(());
         }
 
@@ -272,8 +276,14 @@ impl Node {
             .fork_choice
             .get(&block.previous_hash())
             .ok_or(crate::ledger::ForkChoiceError::MissingParent)?;
+        if self.consensus.config.difficulty != 0 {
+            let expected_difficulty = self.next_difficulty_after_tip(parent.block.height())?;
+            if block.difficulty() != expected_difficulty {
+                return Err(crate::consensus::ConsensusError::UnexpectedDifficulty.into());
+            }
+        }
         self.consensus
-            .validate_next_block_with_tip(block, &parent.block)?;
+            .validate_next_block_with_tip_at(block, &parent.block, now)?;
         Ok(())
     }
 
@@ -284,6 +294,7 @@ impl Node {
         max_attempts: u64,
         transaction_limit: usize,
     ) -> Result<MiningResult, NodeError> {
+        self.mempool.prune_expired(timestamp);
         let difficulty = self.next_difficulty()?;
         let result = mine_candidate_block(
             &self.mempool,
@@ -308,6 +319,10 @@ impl Node {
             return Ok(self.consensus.config.difficulty);
         };
 
+        self.next_difficulty_after_tip(tip_height)
+    }
+
+    fn next_difficulty_after_tip(&self, tip_height: BlockHeight) -> Result<u32, NodeError> {
         let Some((first_timestamp, last_timestamp, block_count, current_difficulty)) = self
             .storage
             .difficulty_window(tip_height, DIFFICULTY_ADJUSTMENT_INTERVAL)?
@@ -397,4 +412,11 @@ impl Node {
             nonce: account.nonce,
         })
     }
+}
+
+fn current_unix_timestamp() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or(0)
 }

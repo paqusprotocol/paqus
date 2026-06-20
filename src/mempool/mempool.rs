@@ -1,27 +1,36 @@
 use crate::block::Block;
 use crate::ledger::{Ledger, LedgerError};
 use crate::mempool::error::MempoolError;
-use crate::params::{HASH_SIZE, MAX_MEMPOOL_TXS};
+use crate::params::{HASH_SIZE, MAX_MEMPOOL_TXS, MEMPOOL_EXPIRY_SECS};
 use crate::state::StateError;
 use crate::transaction::SignedTransaction;
 use crate::types::{Address, BlockNonce, Hash, Height, TransactionHash};
 use std::collections::BTreeMap;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Mempool {
-    transactions: BTreeMap<TransactionHash, SignedTransaction>,
+    transactions: BTreeMap<TransactionHash, MempoolEntry>,
     config: MempoolConfig,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MempoolConfig {
     pub max_transactions: usize,
+    pub transaction_ttl_secs: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct MempoolEntry {
+    transaction: SignedTransaction,
+    inserted_at: u64,
 }
 
 impl Default for MempoolConfig {
     fn default() -> Self {
         Self {
             max_transactions: MAX_MEMPOOL_TXS,
+            transaction_ttl_secs: MEMPOOL_EXPIRY_SECS,
         }
     }
 }
@@ -46,8 +55,17 @@ impl Mempool {
         &mut self,
         transaction: SignedTransaction,
     ) -> Result<TransactionHash, MempoolError> {
+        self.insert_at(transaction, current_unix_timestamp())
+    }
+
+    pub fn insert_at(
+        &mut self,
+        transaction: SignedTransaction,
+        now: u64,
+    ) -> Result<TransactionHash, MempoolError> {
+        self.prune_expired(now);
         transaction.validate_signed()?;
-        self.insert_unchecked(transaction)
+        self.insert_unchecked(transaction, now)
     }
 
     pub fn insert_validated(
@@ -55,14 +73,25 @@ impl Mempool {
         ledger: &Ledger,
         transaction: SignedTransaction,
     ) -> Result<TransactionHash, MempoolError> {
+        self.insert_validated_at(ledger, transaction, current_unix_timestamp())
+    }
+
+    pub fn insert_validated_at(
+        &mut self,
+        ledger: &Ledger,
+        transaction: SignedTransaction,
+        now: u64,
+    ) -> Result<TransactionHash, MempoolError> {
+        self.prune_expired(now);
         transaction.validate_signed()?;
         self.validate_against_ledger(ledger, &transaction)?;
-        self.insert_unchecked(transaction)
+        self.insert_unchecked(transaction, now)
     }
 
     fn insert_unchecked(
         &mut self,
         transaction: SignedTransaction,
+        inserted_at: u64,
     ) -> Result<TransactionHash, MempoolError> {
         let hash = transaction.hash();
         if self.transactions.contains_key(&hash) {
@@ -73,7 +102,13 @@ impl Mempool {
             return Err(MempoolError::MempoolFull);
         }
 
-        self.transactions.insert(hash, transaction);
+        self.transactions.insert(
+            hash,
+            MempoolEntry {
+                transaction,
+                inserted_at,
+            },
+        );
         Ok(hash)
     }
 
@@ -98,6 +133,7 @@ impl Mempool {
         let mut pending_from_sender: Vec<_> = self
             .transactions
             .values()
+            .map(|entry| &entry.transaction)
             .filter(|pending| pending.payload.from == payload.from)
             .collect();
         pending_from_sender.sort_by_key(|pending| pending.payload.nonce);
@@ -138,15 +174,17 @@ impl Mempool {
     }
 
     pub fn remove(&mut self, hash: &TransactionHash) -> Option<SignedTransaction> {
-        self.transactions.remove(hash)
+        self.transactions
+            .remove(hash)
+            .map(|entry| entry.transaction)
     }
 
     pub fn get(&self, hash: &TransactionHash) -> Option<&SignedTransaction> {
-        self.transactions.get(hash)
+        self.transactions.get(hash).map(|entry| &entry.transaction)
     }
 
     pub fn transactions(&self) -> impl Iterator<Item = &SignedTransaction> {
-        self.transactions.values()
+        self.transactions.values().map(|entry| &entry.transaction)
     }
 
     pub fn contains(&self, hash: &TransactionHash) -> bool {
@@ -165,9 +203,17 @@ impl Mempool {
         self.transactions.clear();
     }
 
+    pub fn prune_expired(&mut self, now: u64) -> usize {
+        let before = self.transactions.len();
+        let ttl = self.config.transaction_ttl_secs;
+        self.transactions
+            .retain(|_, entry| now.saturating_sub(entry.inserted_at) <= ttl);
+        before.saturating_sub(self.transactions.len())
+    }
+
     pub fn select_for_block(&self, limit: usize) -> Vec<SignedTransaction> {
         let mut by_sender: BTreeMap<Address, Vec<SignedTransaction>> = BTreeMap::new();
-        for transaction in self.transactions.values() {
+        for transaction in self.transactions() {
             by_sender
                 .entry(transaction.payload.from)
                 .or_default()
@@ -246,4 +292,11 @@ impl Mempool {
             self.transactions.remove(&transaction.hash());
         }
     }
+}
+
+fn current_unix_timestamp() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or(0)
 }

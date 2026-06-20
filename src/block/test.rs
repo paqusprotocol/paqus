@@ -1,5 +1,5 @@
 use super::{Block, BlockError};
-use crate::params::BASE_FEE;
+use crate::params::{BASE_FEE, MAX_FUTURE_TIME};
 use crate::transaction::{SignedTransaction, Transaction};
 use crate::types::{Address, Amount, Hash, Height, Nonce, PublicKey, Signature};
 
@@ -120,7 +120,7 @@ fn rejects_future_timestamp() {
         Height(1),
         Hash([0; 64]),
         miner(),
-        1_700_000_100,
+        1_700_000_000 + MAX_FUTURE_TIME as u64 + 1,
         Nonce(42),
         vec![signed_transaction(1)],
     );

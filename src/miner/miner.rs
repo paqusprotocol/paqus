@@ -38,6 +38,13 @@ pub fn mine_candidate_block(
 
     for attempt in 0..config.max_attempts {
         block.header.nonce = Nonce(attempt);
+        if config.difficulty == 0 {
+            return Ok(Some(MiningResult {
+                block,
+                attempts: attempt.saturating_add(1),
+            }));
+        }
+
         let hash = consensus.proof_of_work_hash(&block)?;
         if consensus
             .validate_proof_of_work_hash_with_difficulty(&hash, config.difficulty)

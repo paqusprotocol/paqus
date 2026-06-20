@@ -2,7 +2,7 @@ use super::{Mempool, MempoolConfig, MempoolError};
 use crate::block::Block;
 use crate::crypto::{address_from_public_key, generate_keypair, sign};
 use crate::ledger::{Ledger, LedgerError};
-use crate::params::BASE_FEE;
+use crate::params::{BASE_FEE, MEMPOOL_EXPIRY_SECS};
 use crate::state::StateError;
 use crate::transaction::{SignedTransaction, Transaction, TransactionError};
 use crate::types::{Address, Amount, Hash, Height, Nonce};
@@ -77,7 +77,8 @@ fn uses_default_transaction_limit() {
     assert_eq!(
         mempool.config(),
         MempoolConfig {
-            max_transactions: crate::params::MAX_MEMPOOL_TXS
+            max_transactions: crate::params::MAX_MEMPOOL_TXS,
+            transaction_ttl_secs: MEMPOOL_EXPIRY_SECS,
         }
     );
 }
@@ -86,6 +87,7 @@ fn uses_default_transaction_limit() {
 fn rejects_transaction_when_mempool_is_full() {
     let mut mempool = Mempool::with_config(MempoolConfig {
         max_transactions: 1,
+        transaction_ttl_secs: MEMPOOL_EXPIRY_SECS,
     });
     let first = signed_transaction(0);
     let second = signed_transaction(1);
@@ -108,6 +110,44 @@ fn rejects_duplicate_transaction() {
         mempool.insert(transaction),
         Err(MempoolError::DuplicateTransaction)
     );
+}
+
+#[test]
+fn prunes_expired_transactions() {
+    let mut mempool = Mempool::new();
+    let expired = signed_transaction(0);
+    let fresh = signed_transaction(1);
+    let expired_hash = expired.hash();
+    let fresh_hash = fresh.hash();
+
+    mempool.insert_at(expired, 1_000).unwrap();
+    mempool
+        .insert_at(fresh, 1_000 + MEMPOOL_EXPIRY_SECS)
+        .unwrap();
+
+    assert_eq!(mempool.prune_expired(1_000 + MEMPOOL_EXPIRY_SECS + 1), 1);
+    assert!(!mempool.contains(&expired_hash));
+    assert!(mempool.contains(&fresh_hash));
+}
+
+#[test]
+fn insert_prunes_expired_transactions_before_capacity_check() {
+    let mut mempool = Mempool::with_config(MempoolConfig {
+        max_transactions: 1,
+        transaction_ttl_secs: MEMPOOL_EXPIRY_SECS,
+    });
+    let expired = signed_transaction(0);
+    let replacement = signed_transaction(1);
+    let replacement_hash = replacement.hash();
+
+    mempool.insert_at(expired, 1_000).unwrap();
+
+    assert_eq!(
+        mempool.insert_at(replacement, 1_000 + MEMPOOL_EXPIRY_SECS + 1),
+        Ok(replacement_hash)
+    );
+    assert_eq!(mempool.len(), 1);
+    assert!(mempool.contains(&replacement_hash));
 }
 
 #[test]

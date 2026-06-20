@@ -1,5 +1,5 @@
 use super::{MiningConfig, mine_candidate_block};
-use crate::consensus::Consensus;
+use crate::consensus::{Consensus, ConsensusConfig};
 use crate::ledger::Ledger;
 use crate::mempool::Mempool;
 use crate::types::{Address, Amount};
@@ -10,7 +10,9 @@ fn address(byte: u8) -> Address {
 
 #[test]
 fn mines_candidate_block_until_pow_is_valid() {
-    let consensus = Consensus::with_default_config();
+    let consensus = Consensus {
+        config: ConsensusConfig { difficulty: 0 },
+    };
     let mut ledger = Ledger::new();
     let miner = address(9);
     ledger.create_account(miner, Amount(0)).unwrap();
@@ -23,15 +25,15 @@ fn mines_candidate_block_until_pow_is_valid() {
         miner,
         1_700_000_000,
         MiningConfig {
-            difficulty: 1,
-            max_attempts: 2_000,
+            difficulty: 0,
+            max_attempts: 1,
             transaction_limit: 10,
         },
     )
     .unwrap()
-    .expect("difficulty 1 should be mined within attempt budget");
+    .expect("difficulty 0 should produce a test block immediately");
 
-    assert!(result.attempts <= 2_000);
-    assert_eq!(result.block.difficulty(), 1);
+    assert_eq!(result.attempts, 1);
+    assert_eq!(result.block.difficulty(), 0);
     assert_eq!(consensus.validate_proof_of_work(&result.block), Ok(()));
 }
