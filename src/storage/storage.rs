@@ -61,14 +61,14 @@ impl Storage {
         Ok(storage)
     }
 
-    pub fn load_storage_version(&self) -> Result<Option<u32>, StorageError> {
+    pub fn load_storage_version(&self) -> Result<Option<u8>, StorageError> {
         self.meta()?
             .get(STORAGE_VERSION_KEY)?
             .map(|bytes| decode(&bytes))
             .transpose()
     }
 
-    fn save_storage_version(&self, version: u32) -> Result<(), StorageError> {
+    fn save_storage_version(&self, version: u8) -> Result<(), StorageError> {
         self.meta()?
             .insert(STORAGE_VERSION_KEY, encode(&version)?.as_slice())?;
         Ok(())

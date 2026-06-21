@@ -32,7 +32,7 @@ impl FeeRate {
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Transaction {
-    pub version: u16,
+    pub version: u8,
     pub from: Address,
     pub to: Address,
     pub amount: Amount,

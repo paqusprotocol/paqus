@@ -8,7 +8,7 @@ pub enum StorageError {
     Serialization(io::Error),
     Integrity(&'static str),
     MissingStorageVersion,
-    UnsupportedStorageVersion { expected: u32, found: u32 },
+    UnsupportedStorageVersion { expected: u8, found: u8 },
 }
 
 impl fmt::Display for StorageError {

@@ -13,7 +13,7 @@ use sha3::{Digest, Sha3_512};
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct BlockHeader {
-    pub version: u16,
+    pub version: u8,
     pub height: BlockHeight,
     pub previous_hash: PreviousHash,
     pub merkle_root: MerkleHash,
