@@ -156,7 +156,7 @@ fn applies_transaction_to_sender_and_receiver_accounts() {
 }
 
 #[test]
-fn rejects_transaction_when_account_is_missing() {
+fn creates_receiver_account_when_missing() {
     let mut ledger = Ledger::new();
     ledger.create_account(address(1), Amount(100)).unwrap();
 
@@ -168,10 +168,9 @@ fn rejects_transaction_when_account_is_missing() {
         Nonce(0),
     );
 
-    assert_eq!(
-        ledger.apply_transaction(&transaction),
-        Err(LedgerError::AccountNotFound)
-    );
+    assert_eq!(ledger.apply_transaction(&transaction), Ok(()));
+    assert_eq!(ledger.balance(&address(1)), Some(Amount(88)));
+    assert_eq!(ledger.balance(&address(2)), Some(Amount(10)));
 }
 
 #[test]

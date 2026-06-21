@@ -2,7 +2,7 @@ use crate::block::{Block, CoinbaseTransaction};
 use crate::consensus::block_reward;
 use crate::ledger::{Ledger, LedgerError};
 use crate::mempool::error::MempoolError;
-use crate::params::{HASH_SIZE, MAX_MEMPOOL_TXS, MEMPOOL_EXPIRY_SECS};
+use crate::params::{HASH_SIZE, MAX_MEMPOOL_BYTES, MAX_MEMPOOL_TXS, MEMPOOL_EXPIRY_SECS};
 use crate::state::StateError;
 use crate::transaction::SignedTransaction;
 use crate::types::{Address, BlockNonce, Hash, Height, TransactionHash};
@@ -13,11 +13,13 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub struct Mempool {
     transactions: BTreeMap<TransactionHash, MempoolEntry>,
     config: MempoolConfig,
+    total_bytes: usize,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MempoolConfig {
     pub max_transactions: usize,
+    pub max_bytes: usize,
     pub transaction_ttl_secs: u64,
 }
 
@@ -31,6 +33,7 @@ impl Default for MempoolConfig {
     fn default() -> Self {
         Self {
             max_transactions: MAX_MEMPOOL_TXS,
+            max_bytes: MAX_MEMPOOL_BYTES,
             transaction_ttl_secs: MEMPOOL_EXPIRY_SECS,
         }
     }
@@ -45,6 +48,7 @@ impl Mempool {
         Self {
             transactions: BTreeMap::new(),
             config,
+            total_bytes: 0,
         }
     }
 
@@ -66,7 +70,7 @@ impl Mempool {
     ) -> Result<TransactionHash, MempoolError> {
         self.prune_expired(now);
         transaction.validate_signed()?;
-        self.insert_unchecked(transaction, now)
+        self.insert_unchecked(transaction, now, None)
     }
 
     pub fn insert_validated(
@@ -85,24 +89,44 @@ impl Mempool {
     ) -> Result<TransactionHash, MempoolError> {
         self.prune_expired(now);
         transaction.validate_signed()?;
-        self.validate_against_ledger(ledger, &transaction)?;
-        self.insert_unchecked(transaction, now)
+        let replacement = self.replacement_candidate(&transaction)?;
+        self.validate_against_ledger_excluding(ledger, &transaction, replacement)?;
+        self.insert_unchecked(transaction, now, replacement)
     }
 
     fn insert_unchecked(
         &mut self,
         transaction: SignedTransaction,
         inserted_at: u64,
+        replacement: Option<TransactionHash>,
     ) -> Result<TransactionHash, MempoolError> {
         let hash = transaction.hash();
         if self.transactions.contains_key(&hash) {
             return Err(MempoolError::DuplicateTransaction);
         }
+        let transaction_size = transaction.serialized_size();
 
-        if self.transactions.len() >= self.config.max_transactions {
+        let replacement_size = replacement
+            .and_then(|hash| self.transactions.get(&hash))
+            .map(|entry| entry.transaction.serialized_size())
+            .unwrap_or(0);
+
+        if replacement.is_none() && self.transactions.len() >= self.config.max_transactions {
             return Err(MempoolError::MempoolFull);
         }
 
+        if self
+            .total_bytes
+            .saturating_sub(replacement_size)
+            .saturating_add(transaction_size)
+            > self.config.max_bytes
+        {
+            return Err(MempoolError::MempoolFull);
+        }
+
+        if let Some(replacement) = replacement {
+            self.remove(&replacement);
+        }
         self.transactions.insert(
             hash,
             MempoolEntry {
@@ -110,7 +134,32 @@ impl Mempool {
                 inserted_at,
             },
         );
+        self.total_bytes = self.total_bytes.saturating_add(transaction_size);
         Ok(hash)
+    }
+
+    fn replacement_candidate(
+        &self,
+        transaction: &SignedTransaction,
+    ) -> Result<Option<TransactionHash>, MempoolError> {
+        let replacement = self
+            .transactions
+            .iter()
+            .find(|(_, entry)| {
+                entry.transaction.payload.from == transaction.payload.from
+                    && entry.transaction.payload.nonce == transaction.payload.nonce
+            })
+            .map(|(hash, entry)| (*hash, entry.transaction.payload.fee));
+
+        let Some((hash, old_fee)) = replacement else {
+            return Ok(None);
+        };
+
+        if transaction.payload.fee.0 <= old_fee.0 {
+            return Err(MempoolError::ReplacementFeeTooLow);
+        }
+
+        Ok(Some(hash))
     }
 
     pub fn validate_against_ledger(
@@ -119,13 +168,20 @@ impl Mempool {
         transaction: &SignedTransaction,
     ) -> Result<(), MempoolError> {
         transaction.validate_signed()?;
+        self.validate_against_ledger_excluding(ledger, transaction, None)
+    }
+
+    fn validate_against_ledger_excluding(
+        &self,
+        ledger: &Ledger,
+        transaction: &SignedTransaction,
+        excluded: Option<TransactionHash>,
+    ) -> Result<(), MempoolError> {
+        transaction.validate_signed()?;
 
         let payload = &transaction.payload;
         let sender = ledger
             .account(&payload.from)
-            .ok_or(LedgerError::AccountNotFound)?;
-        ledger
-            .account(&payload.to)
             .ok_or(LedgerError::AccountNotFound)?;
 
         let current_height = ledger.tip_height().unwrap_or(Height(0));
@@ -133,8 +189,9 @@ impl Mempool {
         let mut spendable = sender.available_balance_at(current_height);
         let mut pending_from_sender: Vec<_> = self
             .transactions
-            .values()
-            .map(|entry| &entry.transaction)
+            .iter()
+            .filter(|(hash, _)| Some(**hash) != excluded)
+            .map(|(_, entry)| &entry.transaction)
             .filter(|pending| pending.payload.from == payload.from)
             .collect();
         pending_from_sender.sort_by_key(|pending| pending.payload.nonce);
@@ -175,9 +232,12 @@ impl Mempool {
     }
 
     pub fn remove(&mut self, hash: &TransactionHash) -> Option<SignedTransaction> {
-        self.transactions
-            .remove(hash)
-            .map(|entry| entry.transaction)
+        self.transactions.remove(hash).map(|entry| {
+            self.total_bytes = self
+                .total_bytes
+                .saturating_sub(entry.transaction.serialized_size());
+            entry.transaction
+        })
     }
 
     pub fn get(&self, hash: &TransactionHash) -> Option<&SignedTransaction> {
@@ -196,19 +256,31 @@ impl Mempool {
         self.transactions.len()
     }
 
+    pub fn total_bytes(&self) -> usize {
+        self.total_bytes
+    }
+
     pub fn is_empty(&self) -> bool {
         self.transactions.is_empty()
     }
 
     pub fn clear(&mut self) {
         self.transactions.clear();
+        self.total_bytes = 0;
     }
 
     pub fn prune_expired(&mut self, now: u64) -> usize {
         let before = self.transactions.len();
         let ttl = self.config.transaction_ttl_secs;
-        self.transactions
-            .retain(|_, entry| now.saturating_sub(entry.inserted_at) <= ttl);
+        let mut retained_bytes = 0_usize;
+        self.transactions.retain(|_, entry| {
+            let retain = now.saturating_sub(entry.inserted_at) <= ttl;
+            if retain {
+                retained_bytes = retained_bytes.saturating_add(entry.transaction.serialized_size());
+            }
+            retain
+        });
+        self.total_bytes = retained_bytes;
         before.saturating_sub(self.transactions.len())
     }
 

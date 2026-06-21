@@ -4,7 +4,7 @@ use crate::consensus::{Consensus, ConsensusConfig, ConsensusError};
 use crate::crypto::{KeyPair, address_from_public_key, generate_keypair, sign};
 use crate::genesis::GENESIS_PREMINE_ADDRESS;
 use crate::ledger::Ledger;
-use crate::params::BASE_FEE;
+use crate::params::{BASE_FEE, BLOCK_REWARD_MATURITY};
 use crate::state::Account;
 use crate::transaction::{SignedTransaction, Transaction};
 use crate::types::{Address, Amount, Hash, Height, Nonce, PublicKey, Signature};
@@ -340,12 +340,12 @@ fn reports_confirmed_available_and_pending_balances() {
     assert_eq!(node.confirmed_balance(&sender), Some(Amount(67)));
     assert_eq!(node.confirmed_balance(&receiver), Some(Amount(11)));
     assert_eq!(node.available_balance(&sender), Some(Amount(67)));
-    assert_eq!(node.available_balance(&receiver), Some(Amount(1)));
+    assert_eq!(node.available_balance(&receiver), Some(Amount(10)));
     assert_eq!(
         node.account_view(&receiver),
         Some(crate::node::AccountView {
-            balance: Amount(1),
-            unspendable: Amount(10),
+            balance: Amount(10),
+            unspendable: Amount(1),
             nonce: Nonce(0),
         })
     );
@@ -416,7 +416,14 @@ fn keeps_mining_rewards_unspendable_until_maturity() {
     );
 
     let miner_view = node.account_view(&miner).unwrap();
-    assert_eq!(miner_view.balance, Amount(100 * crate::params::BASE_FEE));
+    let matured_at_100 = 100_u64.saturating_sub(BLOCK_REWARD_MATURITY as u64);
+    let matured_rewards_at_100 = (1..=matured_at_100)
+        .map(|height| crate::consensus::block_reward(Height(height)).0)
+        .sum::<u32>();
+    assert_eq!(
+        miner_view.balance,
+        Amount(matured_rewards_at_100 + 100 * BASE_FEE)
+    );
     assert!(miner_view.unspendable.0 > 0);
 
     let transaction = signed_transaction_from_keypair(&keypair, receiver, 1, 100);
@@ -427,7 +434,12 @@ fn keeps_mining_rewards_unspendable_until_maturity() {
 
     assert_eq!(
         node.account_view(&miner).unwrap().balance,
-        Amount(crate::consensus::block_reward(Height(1)).0 + 101 * crate::params::BASE_FEE)
+        Amount(
+            (1..=101_u64.saturating_sub(BLOCK_REWARD_MATURITY as u64))
+                .map(|height| crate::consensus::block_reward(Height(height)).0)
+                .sum::<u32>()
+                + 101 * BASE_FEE
+        )
     );
 }
 

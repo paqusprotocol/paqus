@@ -1,6 +1,6 @@
 use super::{
-    NetworkEnvelope, NetworkError, NetworkMessage, Peer, PeerInfo, TipInfo, handle_message,
-    read_message, write_message,
+    NetworkEnvelope, NetworkError, NetworkMessage, Peer, PeerInfo, RejectReason, TipInfo,
+    VersionInfo, handle_message, read_message, write_message,
 };
 use crate::block::Block;
 use crate::consensus::{Consensus, ConsensusConfig};
@@ -67,6 +67,30 @@ fn roundtrips_peer_list() {
         NetworkEnvelope::from_bytes(&envelope.to_bytes().unwrap()).unwrap(),
         envelope
     );
+}
+
+#[test]
+fn roundtrips_version_handshake_messages() {
+    let version = VersionInfo::local(Some(TipInfo {
+        height: Height(7),
+        hash: Hash([7; 64]),
+    }));
+    let messages = [
+        NetworkMessage::Version(version.clone()),
+        NetworkMessage::VerAck(version),
+        NetworkMessage::Reject {
+            reason: RejectReason::ProtocolVersionMismatch,
+            message: "bad version".to_string(),
+        },
+    ];
+
+    for message in messages {
+        let envelope = message.to_envelope();
+        assert_eq!(
+            NetworkEnvelope::from_bytes(&envelope.to_bytes().unwrap()).unwrap(),
+            envelope
+        );
+    }
 }
 
 #[test]
@@ -145,6 +169,28 @@ fn handler_responds_to_ping_and_tip_requests() {
             height: Height(0),
             hash: node.tip_hash().unwrap()
         }))
+    );
+}
+
+#[test]
+fn handler_accepts_compatible_version_and_rejects_incompatible_version() {
+    let mut node = test_node_with_genesis();
+    let compatible = VersionInfo::local(None);
+
+    assert!(matches!(
+        handle_message(&mut node, NetworkMessage::Version(compatible)).unwrap(),
+        Some(NetworkMessage::VerAck(_))
+    ));
+
+    let mut incompatible = VersionInfo::local(None);
+    incompatible.protocol_version = incompatible.protocol_version.saturating_add(1);
+
+    assert_eq!(
+        handle_message(&mut node, NetworkMessage::Version(incompatible)).unwrap(),
+        Some(NetworkMessage::Reject {
+            reason: RejectReason::ProtocolVersionMismatch,
+            message: "incompatible peer version".to_string()
+        })
     );
 }
 

@@ -220,13 +220,26 @@ fn argon2_proof_of_work_hash(block: &Block) -> Result<ProofOfWorkHash, Consensus
 }
 
 fn hash_meets_difficulty(hash: &ProofOfWorkHash, difficulty: u32) -> bool {
-    let zero_bytes = difficulty as usize;
+    let full_zero_bytes = (difficulty / 8) as usize;
+    let remaining_zero_bits = (difficulty % 8) as u8;
 
-    if zero_bytes > hash.0.len() {
+    if full_zero_bytes > hash.0.len() {
         return false;
     }
 
-    hash.0.iter().take(zero_bytes).all(|byte| *byte == 0)
+    if !hash.0.iter().take(full_zero_bytes).all(|byte| *byte == 0) {
+        return false;
+    }
+
+    if remaining_zero_bits == 0 {
+        return true;
+    }
+
+    let Some(next_byte) = hash.0.get(full_zero_bytes) else {
+        return false;
+    };
+    let mask = 0xff << (8 - remaining_zero_bits);
+    next_byte & mask == 0
 }
 
 #[allow(dead_code)]

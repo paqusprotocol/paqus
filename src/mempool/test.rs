@@ -78,6 +78,7 @@ fn uses_default_transaction_limit() {
         mempool.config(),
         MempoolConfig {
             max_transactions: crate::params::MAX_MEMPOOL_TXS,
+            max_bytes: crate::params::MAX_MEMPOOL_BYTES,
             transaction_ttl_secs: MEMPOOL_EXPIRY_SECS,
         }
     );
@@ -87,6 +88,7 @@ fn uses_default_transaction_limit() {
 fn rejects_transaction_when_mempool_is_full() {
     let mut mempool = Mempool::with_config(MempoolConfig {
         max_transactions: 1,
+        max_bytes: crate::params::MAX_MEMPOOL_BYTES,
         transaction_ttl_secs: MEMPOOL_EXPIRY_SECS,
     });
     let first = signed_transaction(0);
@@ -98,6 +100,64 @@ fn rejects_transaction_when_mempool_is_full() {
         Err(MempoolError::DuplicateTransaction)
     );
     assert_eq!(mempool.insert(second), Err(MempoolError::MempoolFull));
+}
+
+#[test]
+fn rejects_transaction_when_mempool_byte_limit_is_full() {
+    let transaction = signed_transaction(0);
+    let mut mempool = Mempool::with_config(MempoolConfig {
+        max_transactions: 10,
+        max_bytes: transaction.serialized_size().saturating_sub(1),
+        transaction_ttl_secs: MEMPOOL_EXPIRY_SECS,
+    });
+
+    assert_eq!(mempool.insert(transaction), Err(MempoolError::MempoolFull));
+}
+
+#[test]
+fn replaces_same_sender_nonce_when_fee_is_higher() {
+    let keypair = generate_keypair();
+    let from = address_from_public_key(&keypair.public_key);
+    let to = address(2);
+    let ledger = ledger_with_accounts(from, to, 100);
+    let original =
+        signed_transaction_from_with_fee(&keypair.secret_key, keypair.public_key, to, 10, 2, 0);
+    let replacement =
+        signed_transaction_from_with_fee(&keypair.secret_key, keypair.public_key, to, 10, 3, 0);
+    let original_hash = original.hash();
+    let replacement_hash = replacement.hash();
+    let mut mempool = Mempool::new();
+
+    assert_eq!(
+        mempool.insert_validated(&ledger, original),
+        Ok(original_hash)
+    );
+    assert_eq!(
+        mempool.insert_validated(&ledger, replacement),
+        Ok(replacement_hash)
+    );
+    assert!(!mempool.contains(&original_hash));
+    assert!(mempool.contains(&replacement_hash));
+    assert_eq!(mempool.len(), 1);
+}
+
+#[test]
+fn rejects_same_sender_nonce_replacement_when_fee_is_not_higher() {
+    let keypair = generate_keypair();
+    let from = address_from_public_key(&keypair.public_key);
+    let to = address(2);
+    let ledger = ledger_with_accounts(from, to, 100);
+    let original =
+        signed_transaction_from_with_fee(&keypair.secret_key, keypair.public_key, to, 10, 3, 0);
+    let replacement =
+        signed_transaction_from_with_fee(&keypair.secret_key, keypair.public_key, to, 10, 2, 0);
+    let mut mempool = Mempool::new();
+
+    mempool.insert_validated(&ledger, original).unwrap();
+    assert_eq!(
+        mempool.insert_validated(&ledger, replacement),
+        Err(MempoolError::ReplacementFeeTooLow)
+    );
 }
 
 #[test]
@@ -134,6 +194,7 @@ fn prunes_expired_transactions() {
 fn insert_prunes_expired_transactions_before_capacity_check() {
     let mut mempool = Mempool::with_config(MempoolConfig {
         max_transactions: 1,
+        max_bytes: crate::params::MAX_MEMPOOL_BYTES,
         transaction_ttl_secs: MEMPOOL_EXPIRY_SECS,
     });
     let expired = signed_transaction(0);

@@ -34,8 +34,8 @@ pub const TAIL_EMISSION_START_HEIGHT: u64 = TAIL_EMISSION_START_YEARS * BLOCKS_P
 
 pub const BLOCK_REWARD: u32 = 2_500;
 pub const TAIL_EMISSION: u32 = 100;
-pub const BLOCK_REWARD_MATURITY: u32 = 100;
-pub const FINALITY_DEPTH: u32 = 10;
+pub const BLOCK_REWARD_MATURITY: u32 = 20;
+pub const FINALITY_DEPTH: u32 = 1;
 pub const MIN_FEE: u32 = 1;
 pub const BASE_FEE: u32 = 2;
 pub const SLOW_FEE: u32 = 1;
@@ -44,9 +44,9 @@ pub const FAST_FEE: u32 = 3;
 pub const AGGRESSIVE_FEE: u32 = 5;
 
 pub const MIN_DIFFICULTY: u32 = 1;
-pub const MAX_DIFFICULTY: u32 = u32::MAX;
+pub const MAX_DIFFICULTY: u32 = (PROOF_OF_WORK_HASH_SIZE * 8) as u32;
 pub const DIFFICULTY_START: u32 = 1;
-pub const DIFFICULTY_ADJUSTMENT_INTERVAL: u64 = 1;
+pub const DIFFICULTY_ADJUSTMENT_INTERVAL: u64 = 10;
 pub const MIN_DIFFICULTY_TIMESPAN_FACTOR: u64 = 4;
 pub const MAX_FUTURE_TIME: u32 = 2 * MINUTE;
 
@@ -60,6 +60,7 @@ pub const PROOF_OF_WORK_HASH_SIZE: usize = 32;
 pub const MAX_TX_SIZE: usize = 10 * 1024;
 pub const MEMPOOL_EXPIRY_SECS: u64 = (30 * MINUTE) as u64;
 pub const MAX_MEMPOOL_TXS: usize = 1_000;
+pub const MAX_MEMPOOL_BYTES: usize = 10 * 1024 * 1024;
 pub const MAX_BLOCK_SIZE: usize = 2 * 1024 * 1024;
 pub const MAX_BLOCK_TXS: usize = 250;
 pub const MAX_NETWORK_MESSAGE_SIZE: usize = 4 * 1024 * 1024;

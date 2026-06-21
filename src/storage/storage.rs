@@ -1,9 +1,10 @@
 use crate::block::Block;
 use crate::ledger::{Ledger, calculate_state_root};
-use crate::params::{HASH_SIZE, STORAGE_VERSION};
+use crate::params::{ADDRESS_SIZE, HASH_SIZE, STORAGE_VERSION};
 use crate::state::Account;
 use crate::storage::error::StorageError;
-use crate::types::{Address, BlockHash, BlockHeight, Hash, Height};
+use crate::transaction::SignedTransaction;
+use crate::types::{Address, BlockHash, BlockHeight, Hash, Height, TransactionHash};
 use borsh::{BorshDeserialize, BorshSerialize};
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -13,6 +14,8 @@ const BLOCKS_BY_HASH: &str = "blocks_by_hash";
 const ACCOUNTS: &str = "accounts";
 const GENESIS_ACCOUNTS: &str = "genesis_accounts";
 const STATE_SNAPSHOTS: &str = "state_snapshots";
+const TX_INDEX: &str = "tx_index";
+const ADDRESS_TX_INDEX: &str = "address_tx_index";
 const META: &str = "meta";
 const TIP_HEIGHT_KEY: &[u8] = b"tip_height";
 const TIP_HASH_KEY: &[u8] = b"tip_hash";
@@ -24,6 +27,22 @@ pub struct StateSnapshot {
     pub block_hash: BlockHash,
     pub state_root: Hash,
     pub accounts: BTreeMap<Address, Account>,
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TransactionLocation {
+    pub block_height: BlockHeight,
+    pub block_hash: BlockHash,
+    pub tx_index: u32,
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AddressTransactionLocation {
+    pub tx_hash: TransactionHash,
+    pub block_height: BlockHeight,
+    pub block_hash: BlockHash,
+    pub tx_index: u32,
+    pub sent: bool,
 }
 
 impl StateSnapshot {
@@ -94,7 +113,9 @@ impl Storage {
             && self.blocks_by_hash()?.is_empty()
             && self.accounts()?.is_empty()
             && self.genesis_accounts()?.is_empty()
-            && self.state_snapshots()?.is_empty())
+            && self.state_snapshots()?.is_empty()
+            && self.tx_index()?.is_empty()
+            && self.address_tx_index()?.is_empty())
     }
 
     pub fn save_block(&self, block: &Block) -> Result<(), StorageError> {
@@ -103,6 +124,55 @@ impl Storage {
             .insert(height_key(block.height()), bytes.as_slice())?;
         self.blocks_by_hash()?
             .insert(block.hash().0.as_slice(), bytes.as_slice())?;
+        self.index_block_transactions(block)?;
+        Ok(())
+    }
+
+    fn index_block_transactions(&self, block: &Block) -> Result<(), StorageError> {
+        let tx_index = self.tx_index()?;
+        let address_tx_index = self.address_tx_index()?;
+        let block_hash = block.hash();
+
+        for (index, transaction) in block.transactions.iter().enumerate() {
+            let tx_index_u32 = u32::try_from(index)
+                .map_err(|_| StorageError::Integrity("transaction index exceeds u32"))?;
+            let tx_hash = transaction.hash();
+            let location = TransactionLocation {
+                block_height: block.height(),
+                block_hash,
+                tx_index: tx_index_u32,
+            };
+            tx_index.insert(tx_hash.0.as_slice(), encode(&location)?.as_slice())?;
+
+            let sent_location = AddressTransactionLocation {
+                tx_hash,
+                block_height: block.height(),
+                block_hash,
+                tx_index: tx_index_u32,
+                sent: true,
+            };
+            address_tx_index.insert(
+                address_tx_key(
+                    &transaction.payload.from,
+                    block.height(),
+                    tx_index_u32,
+                    true,
+                ),
+                encode(&sent_location)?.as_slice(),
+            )?;
+
+            if transaction.payload.to != transaction.payload.from {
+                let received_location = AddressTransactionLocation {
+                    sent: false,
+                    ..sent_location
+                };
+                address_tx_index.insert(
+                    address_tx_key(&transaction.payload.to, block.height(), tx_index_u32, false),
+                    encode(&received_location)?.as_slice(),
+                )?;
+            }
+        }
+
         Ok(())
     }
 
@@ -134,6 +204,64 @@ impl Storage {
                 Ok(block)
             })
             .transpose()
+    }
+
+    pub fn load_transaction_location(
+        &self,
+        hash: &TransactionHash,
+    ) -> Result<Option<TransactionLocation>, StorageError> {
+        self.tx_index()?
+            .get(hash.0.as_slice())?
+            .map(|bytes| decode(&bytes))
+            .transpose()
+    }
+
+    pub fn load_transaction(
+        &self,
+        hash: &TransactionHash,
+    ) -> Result<Option<(TransactionLocation, SignedTransaction)>, StorageError> {
+        let Some(location) = self.load_transaction_location(hash)? else {
+            return Ok(None);
+        };
+        let Some(block) = self.load_block_by_height(location.block_height)? else {
+            return Err(StorageError::Integrity(
+                "indexed transaction block is missing",
+            ));
+        };
+        if block.hash() != location.block_hash {
+            return Err(StorageError::Integrity(
+                "indexed transaction block hash mismatch",
+            ));
+        }
+        let transaction = block
+            .transactions
+            .get(location.tx_index as usize)
+            .ok_or(StorageError::Integrity(
+                "indexed transaction position is missing",
+            ))?
+            .clone();
+        if transaction.hash() != *hash {
+            return Err(StorageError::Integrity(
+                "indexed transaction hash does not match transaction",
+            ));
+        }
+        Ok(Some((location, transaction)))
+    }
+
+    pub fn load_address_transaction_locations(
+        &self,
+        address: &Address,
+    ) -> Result<Vec<AddressTransactionLocation>, StorageError> {
+        let prefix = address.0;
+        let mut locations = Vec::new();
+        for entry in self.address_tx_index()?.scan_prefix(prefix) {
+            let (_key, bytes) = entry?;
+            locations.push(decode(&bytes)?);
+        }
+        locations.sort_by_key(|location: &AddressTransactionLocation| {
+            (location.block_height, location.tx_index, location.sent)
+        });
+        Ok(locations)
     }
 
     pub fn save_account(&self, account: &Account) -> Result<(), StorageError> {
@@ -404,6 +532,14 @@ impl Storage {
         Ok(self.db.open_tree(META)?)
     }
 
+    fn tx_index(&self) -> Result<sled::Tree, StorageError> {
+        Ok(self.db.open_tree(TX_INDEX)?)
+    }
+
+    fn address_tx_index(&self) -> Result<sled::Tree, StorageError> {
+        Ok(self.db.open_tree(ADDRESS_TX_INDEX)?)
+    }
+
     #[cfg(test)]
     pub(crate) fn test_meta(&self) -> Result<sled::Tree, StorageError> {
         self.meta()
@@ -412,6 +548,15 @@ impl Storage {
 
 fn height_key(height: BlockHeight) -> [u8; 8] {
     height.0.to_be_bytes()
+}
+
+fn address_tx_key(address: &Address, height: BlockHeight, tx_index: u32, sent: bool) -> Vec<u8> {
+    let mut key = Vec::with_capacity(ADDRESS_SIZE + 8 + 4 + 1);
+    key.extend_from_slice(&address.0);
+    key.extend_from_slice(&height.0.to_be_bytes());
+    key.extend_from_slice(&tx_index.to_be_bytes());
+    key.push(u8::from(sent));
+    key
 }
 
 fn encode<T: BorshSerialize>(value: &T) -> Result<Vec<u8>, StorageError> {

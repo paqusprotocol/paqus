@@ -99,9 +99,7 @@ impl Ledger {
         transaction: &Transaction,
         height: BlockHeight,
     ) -> Result<(), LedgerError> {
-        if !self.accounts.contains_key(&transaction.from)
-            || !self.accounts.contains_key(&transaction.to)
-        {
+        if !self.accounts.contains_key(&transaction.from) {
             return Err(LedgerError::AccountNotFound);
         }
 
@@ -116,8 +114,8 @@ impl Ledger {
         let spendable_height = crate::types::Height(height.0.saturating_add(FINALITY_DEPTH as u64));
         let receiver = self
             .accounts
-            .get_mut(&transaction.to)
-            .ok_or(LedgerError::AccountNotFound)?;
+            .entry(transaction.to)
+            .or_insert_with(|| Account::new(transaction.to, Amount(0)));
         receiver.apply_incoming_transaction(transaction, spendable_height)?;
 
         Ok(())

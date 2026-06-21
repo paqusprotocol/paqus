@@ -1,8 +1,10 @@
 use super::{StateSnapshot, Storage, StorageError};
 use crate::block::Block;
+use crate::crypto::{address_from_public_key, generate_keypair, sign};
 use crate::ledger::Ledger;
-use crate::params::STORAGE_VERSION;
+use crate::params::{BASE_FEE, STORAGE_VERSION};
 use crate::state::Account;
+use crate::transaction::{SignedTransaction, Transaction};
 use crate::types::{Address, Amount, Hash, Height, Nonce};
 
 fn address(byte: u8) -> Address {
@@ -20,6 +22,14 @@ fn block(height: u64, previous_hash: Hash) -> Block {
     )
 }
 
+fn signed_transaction(to: Address, amount: u32, nonce: u64) -> SignedTransaction {
+    let keypair = generate_keypair();
+    let from = address_from_public_key(&keypair.public_key);
+    let payload = Transaction::new(from, to, Amount(amount), Amount(BASE_FEE), Nonce(nonce));
+    let signature = sign(&keypair.secret_key, &payload.signing_bytes());
+    SignedTransaction::new(payload, keypair.public_key, signature)
+}
+
 #[test]
 fn stores_and_loads_blocks_by_height_and_hash() {
     let storage = Storage::temporary().unwrap();
@@ -33,6 +43,45 @@ fn stores_and_loads_blocks_by_height_and_hash() {
         Some(block.clone())
     );
     assert_eq!(storage.load_block_by_hash(&hash).unwrap(), Some(block));
+}
+
+#[test]
+fn indexes_transactions_by_hash_and_address() {
+    let storage = Storage::temporary().unwrap();
+    let transaction = signed_transaction(address(2), 10, 0);
+    let tx_hash = transaction.hash();
+    let sender = transaction.payload.from;
+    let receiver = transaction.payload.to;
+    let block = Block::with_difficulty(
+        Height(1),
+        Hash([0; 64]),
+        address(9),
+        1,
+        1_700_000_001,
+        Nonce(0),
+        vec![transaction.clone()],
+    );
+    let block_hash = block.hash();
+
+    storage.save_block(&block).unwrap();
+
+    let (location, loaded) = storage.load_transaction(&tx_hash).unwrap().unwrap();
+    assert_eq!(location.block_height, Height(1));
+    assert_eq!(location.block_hash, block_hash);
+    assert_eq!(location.tx_index, 0);
+    assert_eq!(loaded, transaction);
+
+    let sent = storage.load_address_transaction_locations(&sender).unwrap();
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0].tx_hash, tx_hash);
+    assert!(sent[0].sent);
+
+    let received = storage
+        .load_address_transaction_locations(&receiver)
+        .unwrap();
+    assert_eq!(received.len(), 1);
+    assert_eq!(received[0].tx_hash, tx_hash);
+    assert!(!received[0].sent);
 }
 
 #[test]
@@ -290,6 +339,29 @@ fn difficulty_window_uses_previous_block_for_single_block_interval() {
     assert_eq!(
         storage.difficulty_window(Height(1), 1).unwrap(),
         Some((genesis.timestamp(), next.timestamp(), 1, next.difficulty()))
+    );
+}
+
+#[test]
+fn difficulty_window_uses_configured_block_interval() {
+    let storage = Storage::temporary().unwrap();
+    let mut previous_hash = Hash([0; 64]);
+
+    for height in 0..=10 {
+        let block = block(height, previous_hash);
+        previous_hash = block.hash();
+        storage.save_block(&block).unwrap();
+    }
+
+    assert_eq!(storage.difficulty_window(Height(9), 10).unwrap(), None);
+    assert_eq!(
+        storage.difficulty_window(Height(10), 10).unwrap(),
+        Some((
+            block(0, Hash([0; 64])).timestamp(),
+            block(10, Hash([0; 64])).timestamp(),
+            10,
+            block(10, Hash([0; 64])).difficulty()
+        ))
     );
 }
 

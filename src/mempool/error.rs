@@ -7,6 +7,7 @@ use std::fmt;
 pub enum MempoolError {
     DuplicateTransaction,
     MempoolFull,
+    ReplacementFeeTooLow,
     InvalidTransaction(TransactionError),
     InvalidLedgerState(LedgerError),
 }
@@ -18,6 +19,9 @@ impl fmt::Display for MempoolError {
                 f.write_str("transaction already exists in mempool")
             }
             MempoolError::MempoolFull => f.write_str("mempool transaction limit reached"),
+            MempoolError::ReplacementFeeTooLow => {
+                f.write_str("replacement transaction fee must be higher")
+            }
             MempoolError::InvalidTransaction(error) => write!(f, "invalid transaction: {error}"),
             MempoolError::InvalidLedgerState(error) => {
                 write!(f, "transaction does not fit ledger state: {error}")
@@ -31,6 +35,7 @@ impl Error for MempoolError {
         match self {
             MempoolError::DuplicateTransaction => None,
             MempoolError::MempoolFull => None,
+            MempoolError::ReplacementFeeTooLow => None,
             MempoolError::InvalidTransaction(error) => Some(error),
             MempoolError::InvalidLedgerState(error) => Some(error),
         }

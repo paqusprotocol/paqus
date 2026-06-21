@@ -139,20 +139,80 @@ fn rejects_wrong_previous_hash() {
 }
 
 #[test]
-fn checks_proof_of_work_zero_byte_difficulty() {
-    let consensus = Consensus::new(ConsensusConfig { difficulty: 2 }).unwrap();
+fn checks_proof_of_work_zero_bit_difficulty() {
+    let consensus = Consensus::new(ConsensusConfig { difficulty: 9 }).unwrap();
 
     assert_eq!(
         consensus.validate_proof_of_work_hash(&ProofOfWorkHash([
-            0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
-            23, 24, 25, 26, 27, 28, 29, 30
+            0,
+            0b0111_1111,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18,
+            19,
+            20,
+            21,
+            22,
+            23,
+            24,
+            25,
+            26,
+            27,
+            28,
+            29,
+            30
         ])),
         Ok(())
     );
     assert_eq!(
         consensus.validate_proof_of_work_hash(&ProofOfWorkHash([
-            0, 1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
-            23, 24, 25, 26, 27, 28, 29, 30
+            0,
+            0b1000_0000,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18,
+            19,
+            20,
+            21,
+            22,
+            23,
+            24,
+            25,
+            26,
+            27,
+            28,
+            29,
+            30
         ])),
         Err(ConsensusError::InsufficientProofOfWork)
     );
@@ -178,18 +238,18 @@ fn retargets_difficulty_from_block_timespan() {
     let consensus = Consensus::with_default_config();
 
     assert_eq!(
-        consensus.retarget_difficulty(2, 0, 150, DIFFICULTY_ADJUSTMENT_INTERVAL),
+        consensus.retarget_difficulty(2, 0, 1_500, DIFFICULTY_ADJUSTMENT_INTERVAL),
         Ok(3)
     );
     assert_eq!(
-        consensus.retarget_difficulty(2, 0, 450, DIFFICULTY_ADJUSTMENT_INTERVAL),
+        consensus.retarget_difficulty(2, 0, 4_500, DIFFICULTY_ADJUSTMENT_INTERVAL),
         Ok(1)
     );
     assert_eq!(
-        consensus.retarget_difficulty(2, 0, 300, DIFFICULTY_ADJUSTMENT_INTERVAL),
+        consensus.retarget_difficulty(2, 0, 3_000, DIFFICULTY_ADJUSTMENT_INTERVAL),
         Ok(2)
     );
-    assert_eq!(consensus.retarget_difficulty(2, 0, 10, 0), Ok(2));
+    assert_eq!(consensus.retarget_difficulty(2, 0, 10, 9), Ok(2));
 }
 
 #[test]

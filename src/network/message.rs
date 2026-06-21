@@ -1,6 +1,8 @@
 use crate::block::Block;
 use crate::network::error::NetworkError;
-use crate::params::{MAX_NETWORK_MESSAGE_SIZE, NETWORK_MAGIC};
+use crate::params::{
+    CHAIN_ID, CHAIN_NAME, MAX_NETWORK_MESSAGE_SIZE, NETWORK_MAGIC, PROTOCOL_STAGE, PROTOCOL_VERSION,
+};
 use crate::transaction::SignedTransaction;
 use crate::types::{BlockHash, BlockHeight};
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -17,13 +19,74 @@ pub struct TipInfo {
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+pub struct VersionInfo {
+    pub protocol_version: u8,
+    pub chain_id: u8,
+    pub chain_name: String,
+    pub protocol_stage: String,
+    pub network_magic: [u8; 4],
+    pub tip: Option<TipInfo>,
+}
+
+impl VersionInfo {
+    pub fn local(tip: Option<TipInfo>) -> Self {
+        Self {
+            protocol_version: PROTOCOL_VERSION,
+            chain_id: CHAIN_ID,
+            chain_name: CHAIN_NAME.to_string(),
+            protocol_stage: PROTOCOL_STAGE.to_string(),
+            network_magic: NETWORK_MAGIC,
+            tip,
+        }
+    }
+
+    pub fn validate_compatibility(&self) -> Result<(), RejectReason> {
+        if self.network_magic != NETWORK_MAGIC {
+            return Err(RejectReason::NetworkMismatch);
+        }
+        if self.chain_id != CHAIN_ID
+            || self.chain_name != CHAIN_NAME
+            || self.protocol_stage != PROTOCOL_STAGE
+        {
+            return Err(RejectReason::ChainMismatch);
+        }
+        if self.protocol_version != PROTOCOL_VERSION {
+            return Err(RejectReason::ProtocolVersionMismatch);
+        }
+        Ok(())
+    }
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+pub enum RejectReason {
+    ProtocolVersionMismatch,
+    ChainMismatch,
+    NetworkMismatch,
+    InvalidMessage,
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
 pub enum NetworkMessage {
-    Ping { nonce: u64 },
-    Pong { nonce: u64 },
+    Version(VersionInfo),
+    VerAck(VersionInfo),
+    Reject {
+        reason: RejectReason,
+        message: String,
+    },
+    Ping {
+        nonce: u64,
+    },
+    Pong {
+        nonce: u64,
+    },
     GetTip,
     Tip(TipInfo),
-    GetBlockByHeight { height: BlockHeight },
-    GetBlockByHash { hash: BlockHash },
+    GetBlockByHeight {
+        height: BlockHeight,
+    },
+    GetBlockByHash {
+        hash: BlockHash,
+    },
     Block(Block),
     Transaction(SignedTransaction),
     GetPeers,

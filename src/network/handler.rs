@@ -1,5 +1,5 @@
 use crate::network::error::NetworkError;
-use crate::network::message::{NetworkMessage, TipInfo};
+use crate::network::message::{NetworkMessage, TipInfo, VersionInfo};
 use crate::node::Node;
 
 pub fn handle_message(
@@ -7,6 +7,15 @@ pub fn handle_message(
     message: NetworkMessage,
 ) -> Result<Option<NetworkMessage>, NetworkError> {
     match message {
+        NetworkMessage::Version(version) => match version.validate_compatibility() {
+            Ok(()) => Ok(Some(NetworkMessage::VerAck(local_version(node)))),
+            Err(reason) => Ok(Some(NetworkMessage::Reject {
+                reason,
+                message: "incompatible peer version".to_string(),
+            })),
+        },
+        NetworkMessage::VerAck(_) => Ok(None),
+        NetworkMessage::Reject { .. } => Ok(None),
         NetworkMessage::Ping { nonce } => Ok(Some(NetworkMessage::Pong { nonce })),
         NetworkMessage::Pong { .. } => Ok(None),
         NetworkMessage::GetTip => Ok(node
@@ -35,4 +44,12 @@ pub fn handle_message(
         NetworkMessage::GetPeers => Ok(Some(NetworkMessage::Peers(vec![]))),
         NetworkMessage::Peers(_) => Ok(None),
     }
+}
+
+fn local_version(node: &Node) -> VersionInfo {
+    VersionInfo::local(
+        node.tip_height()
+            .zip(node.tip_hash())
+            .map(|(height, hash)| TipInfo { height, hash }),
+    )
 }
