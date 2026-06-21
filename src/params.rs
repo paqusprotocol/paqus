@@ -11,7 +11,7 @@ pub const TRANSACTION_VERSION: u8 = 1;
 pub const DEFAULT_RPC_PORT: u16 = 9_933;
 pub const DEFAULT_P2P_PORT: u16 = 30_333;
 pub const DEFAULT_RPC_ADDR: &str = "127.0.0.1:9933";
-pub const DEFAULT_P2P_ADDR: &str = "0.0.0.0:30333";
+pub const DEFAULT_P2P_ADDR: &str = "[::]:30333";
 
 pub const UNIT: u32 = 1;
 pub const COIN: u32 = 100;
@@ -64,3 +64,29 @@ pub const MAX_MEMPOOL_BYTES: usize = 10 * 1024 * 1024;
 pub const MAX_BLOCK_SIZE: usize = 2 * 1024 * 1024;
 pub const MAX_BLOCK_TXS: usize = 250;
 pub const MAX_NETWORK_MESSAGE_SIZE: usize = 4 * 1024 * 1024;
+
+#[cfg(test)]
+mod test {
+    use super::{DEFAULT_P2P_ADDR, DEFAULT_P2P_PORT, DEFAULT_RPC_ADDR, DEFAULT_RPC_PORT};
+    use std::net::{IpAddr, Ipv6Addr, SocketAddr};
+
+    #[test]
+    fn default_rpc_address_is_localhost() {
+        let addr = DEFAULT_RPC_ADDR
+            .parse::<SocketAddr>()
+            .expect("default rpc address should parse");
+
+        assert_eq!(addr.port(), DEFAULT_RPC_PORT);
+        assert!(addr.ip().is_loopback());
+    }
+
+    #[test]
+    fn default_p2p_address_binds_ipv6_wildcard() {
+        let addr = DEFAULT_P2P_ADDR
+            .parse::<SocketAddr>()
+            .expect("default p2p address should parse");
+
+        assert_eq!(addr.port(), DEFAULT_P2P_PORT);
+        assert_eq!(addr.ip(), IpAddr::V6(Ipv6Addr::UNSPECIFIED));
+    }
+}

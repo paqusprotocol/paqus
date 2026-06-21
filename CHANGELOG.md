@@ -2,6 +2,12 @@
 
 All notable Paqus core devnet changes are summarized here.
 
+## 0.1.5 - Devnet
+
+- Changed the default P2P bind address to `[::]:30333` so node applications can bind on IPv6 by default while still allowing IPv4 override.
+- Kept the default RPC bind address at `127.0.0.1:9933` so local RPC remains private by default.
+- Added parameter tests for default RPC and P2P socket addresses.
+
 ## 0.1.4 - Devnet
 
 - Changed proof-of-work difficulty semantics from leading zero bytes to leading zero bits.
