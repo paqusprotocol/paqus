@@ -1,12 +1,13 @@
 pub const CHAIN_NAME: &str = "paqus";
+pub const CHAIN_ID: u8 = 1;
 pub const COIN_NAME: &str = "XPQ";
 pub const UNIT_NAME: &str = "ie";
 pub const NETWORK_MAGIC: [u8; 4] = [0x58, 0x50, 0x51, 0x01];
 pub const PROTOCOL_STAGE: &str = "devnet";
-pub const PROTOCOL_VERSION: u32 = 1;
-pub const STORAGE_VERSION: u32 = 1;
-pub const BLOCK_VERSION: u16 = 1;
-pub const TRANSACTION_VERSION: u16 = 1;
+pub const PROTOCOL_VERSION: u8 = 1;
+pub const STORAGE_VERSION: u8 = 1;
+pub const BLOCK_VERSION: u8 = 1;
+pub const TRANSACTION_VERSION: u8 = 1;
 pub const DEFAULT_RPC_PORT: u16 = 9_933;
 pub const DEFAULT_P2P_PORT: u16 = 30_333;
 pub const DEFAULT_RPC_ADDR: &str = "127.0.0.1:9933";

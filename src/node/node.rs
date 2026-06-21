@@ -1,7 +1,7 @@
 use crate::block::Block;
 use crate::cache::CoreCache;
 use crate::consensus::Consensus;
-use crate::genesis::{GenesisConfig, create_genesis_ledger};
+use crate::genesis::{GENESIS_HASH, genesis_block};
 use crate::ledger::{Chain, ForkChoice, Ledger};
 use crate::mempool::Mempool;
 use crate::miner::{MiningConfig, MiningResult, mine_candidate_block};
@@ -102,16 +102,15 @@ impl Node {
         Ok(Self::new(ledger, Storage::temporary()?, consensus))
     }
 
-    pub fn init_or_load(
-        path: impl AsRef<Path>,
-        genesis_config: GenesisConfig,
-        consensus: Consensus,
-    ) -> Result<Self, NodeError> {
+    pub fn init_or_load(path: impl AsRef<Path>, consensus: Consensus) -> Result<Self, NodeError> {
         let storage = Storage::open(path)?;
         let ledger = if storage.load_tip()?.is_some() {
             storage.load_ledger()?
         } else {
-            let ledger = create_genesis_ledger(genesis_config)?;
+            let genesis = genesis_block();
+            assert_eq!(genesis.hash().0, GENESIS_HASH);
+            let mut ledger = Ledger::new();
+            ledger.apply_block(genesis)?;
             storage.save_ledger(&ledger)?;
             storage.save_genesis_accounts(&ledger.accounts)?;
             ledger

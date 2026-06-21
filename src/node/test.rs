@@ -2,7 +2,7 @@ use super::Node;
 use crate::block::{Block, BlockError};
 use crate::consensus::{Consensus, ConsensusConfig, ConsensusError};
 use crate::crypto::{KeyPair, address_from_public_key, generate_keypair, sign};
-use crate::genesis::{GENESIS_PREMINE_ADDRESS, GenesisConfig};
+use crate::genesis::GENESIS_PREMINE_ADDRESS;
 use crate::ledger::Ledger;
 use crate::params::BASE_FEE;
 use crate::state::Account;
@@ -134,16 +134,7 @@ fn mines_and_applies_block_from_mempool() {
 #[test]
 fn initializes_genesis_when_storage_is_empty() {
     let dir = tempfile_dir();
-    let node = Node::init_or_load(
-        &dir,
-        GenesisConfig {
-            premine_address: GENESIS_PREMINE_ADDRESS,
-            miner_address: address(9),
-            timestamp: 1_700_000_000,
-        },
-        Consensus::with_default_config(),
-    )
-    .unwrap();
+    let node = Node::init_or_load(&dir, Consensus::with_default_config()).unwrap();
 
     assert_eq!(node.tip_height(), Some(Height(0)));
     assert!(node.balance(&GENESIS_PREMINE_ADDRESS).is_some());

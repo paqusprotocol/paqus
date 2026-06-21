@@ -38,17 +38,10 @@ https://matrix.to/#/#paqus:matrix.org
 
 ```rust
 use paqus::consensus::Consensus;
-use paqus::genesis::{GenesisConfig, GENESIS_PREMINE_ADDRESS};
 use paqus::node::Node;
-use paqus::types::Address;
 
 let node = Node::init_or_load(
     "./paqus-devnet-db",
-    GenesisConfig {
-        premine_address: GENESIS_PREMINE_ADDRESS,
-        miner_address: Address([9; 20]),
-        timestamp: 1_700_000_000,
-    },
     Consensus::with_default_config(),
 )?;
 
