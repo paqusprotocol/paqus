@@ -7,7 +7,7 @@ readme = "README.md"
 repository = "https://github.com/paqusprotocol/paqus"
 license = "MIT"
 keywords = ["blockchain", "proof-of-work", "post-quantum", "ml-dsa", "sha3"]
-categories = ["blockchain"]
+categories = ["cryptography::cryptocurrencies"]
 
 [dependencies]
 sha3 = "0.12.0"
