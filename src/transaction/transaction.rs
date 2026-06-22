@@ -1,12 +1,12 @@
-use crate::crypto::{address_from_public_key, verify};
-use crate::params::{
-    AGGRESSIVE_FEE, BASE_FEE, FAST_FEE, HASH_SIZE, MAX_TX_SIZE, MIN_FEE, SLOW_FEE,
-    TRANSACTION_VERSION,
+use crate::codec::{
+    signed_transaction_bytes, signed_transaction_hash, transaction_bytes, transaction_hash,
 };
-use crate::transaction::error::TransactionError;
-use crate::types::{AccountNonce, Address, Amount, Hash, PublicKey, Signature, TransactionHash};
+use crate::crypto::{address_from_public_key, verify};
+use crate::error::TransactionError;
+use crate::params::{AGGRESSIVE_FEE, BASE_FEE, FAST_FEE, MAX_TX_SIZE, MIN_FEE, SLOW_FEE};
+use crate::types::{AccountNonce, Address, Amount, PublicKey, Signature, TransactionHash};
+use crate::version::active_versions;
 use borsh::{BorshDeserialize, BorshSerialize};
-use sha3::{Digest, Sha3_512};
 
 pub type TransactionPayload = Transaction;
 const TRANSACTION_SIGNATURE_DOMAIN: &[u8] = b"PAQUSCORE_TX_V1";
@@ -49,7 +49,7 @@ impl Transaction {
         nonce: AccountNonce,
     ) -> Self {
         Self {
-            version: TRANSACTION_VERSION,
+            version: active_versions(crate::types::Height(0)).transaction,
             from,
             to,
             amount,
@@ -59,7 +59,7 @@ impl Transaction {
     }
 
     pub fn validate(&self) -> Result<(), TransactionError> {
-        if self.version != TRANSACTION_VERSION {
+        if self.version != active_versions(crate::types::Height(0)).transaction {
             return Err(TransactionError::UnsupportedVersion);
         }
 
@@ -79,11 +79,11 @@ impl Transaction {
     }
 
     pub fn hash(&self) -> TransactionHash {
-        hash_bytes(&self.to_bytes())
+        transaction_hash(self)
     }
 
     pub fn to_bytes(&self) -> Vec<u8> {
-        borsh::to_vec(self).expect("transaction serialization should not fail")
+        transaction_bytes(self)
     }
 
     pub fn signing_bytes(&self) -> Vec<u8> {
@@ -155,7 +155,7 @@ impl SignedTransaction {
     }
 
     pub fn hash(&self) -> TransactionHash {
-        hash_bytes(&self.to_bytes())
+        signed_transaction_hash(self)
     }
 
     pub fn payload_hash(&self) -> TransactionHash {
@@ -163,17 +163,10 @@ impl SignedTransaction {
     }
 
     pub fn to_bytes(&self) -> Vec<u8> {
-        borsh::to_vec(self).expect("signed transaction serialization should not fail")
+        signed_transaction_bytes(self)
     }
 
     pub fn serialized_size(&self) -> usize {
         self.to_bytes().len()
     }
-}
-
-fn hash_bytes(bytes: &[u8]) -> Hash {
-    let digest = Sha3_512::digest(bytes);
-    let mut hash = [0_u8; HASH_SIZE];
-    hash.copy_from_slice(&digest);
-    Hash(hash)
 }

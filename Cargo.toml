@@ -2,12 +2,12 @@
 name = "paqus"
 version = "0.1.5"
 edition = "2024"
-description = "Devnet core primitives for the Paqus proof-of-work blockchain."
+description = "Core primitives for the Paqus proof-of-work blockchain."
 readme = "README.md"
 repository = "https://github.com/paqusprotocol/paqus"
 license = "MIT"
-keywords = ["blockchain", "pow", "devnet", "quantum", "cryptography"]
-categories = ["cryptography::cryptocurrencies"]
+keywords = ["blockchain", "proof-of-work", "post-quantum", "ml-dsa", "sha3"]
+categories = ["blockchain"]
 
 [dependencies]
 sha3 = "0.12.0"
@@ -16,4 +16,9 @@ hex = "0.4"
 borsh = { version = "1.5", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 argon2 = "0.6.0-rc.8"
-sled = "0.34"
+thiserror = "2"
+
+[dev-dependencies]
+arbitrary = { version = "1", features = ["derive"] }
+proptest = "1"
+rstest = "0.26"

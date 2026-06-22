@@ -1,22 +1,20 @@
 pub mod chain;
-#[cfg(test)]
-mod chain_test;
-pub mod error;
 pub mod fork_choice;
-#[cfg(test)]
-mod fork_choice_test;
 pub mod ledger;
+pub mod reorg;
+pub mod reward;
 pub mod state_proof;
-#[cfg(test)]
-mod state_proof_test;
-#[cfg(test)]
-mod test;
+pub mod transition;
 
+pub use crate::error::LedgerError;
 pub use chain::Chain;
-pub use error::LedgerError;
-pub use fork_choice::{BlockNode, ForkChoice, ForkChoiceError, block_work};
 pub use ledger::Ledger;
+pub use reorg::{ReorgPlan, common_ancestor, plan_reorg};
 pub use state_proof::{
     AccountStateProof, ProofSide, StateProofNode, calculate_state_root, create_account_state_proof,
     verify_account_state_proof,
+};
+pub use transition::{
+    BlockExecution, TransactionExecution, apply_transaction_to_state,
+    validate_signed_transaction_against_state, validate_transaction_against_state,
 };

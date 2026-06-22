@@ -1,0 +1,9 @@
+#![no_main]
+
+use libfuzzer_sys::fuzz_target;
+
+fuzz_target!(|data: &[u8]| {
+    let _ = paqus::codec::decode_transaction(data);
+    let _ = paqus::codec::decode_signed_transaction(data);
+    let _ = paqus::codec::decode_block(data);
+});

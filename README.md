@@ -1,6 +1,6 @@
 # paqus
 
-Devnet core crate for the Paqus proof-of-work blockchain.
+Core primitives for the Paqus proof-of-work blockchain.
 
 ## Disclaimer
 
@@ -11,40 +11,46 @@ use a similar name, mark, or terminology. Any resemblance in naming is
 coincidental and should not be interpreted as a partnership, endorsement, or
 shared ownership.
 
-This crate contains the core building blocks used by a Paqus full node:
+This crate contains deterministic blockchain logic and protocol primitives:
 
-- SHA3-512 block and transaction hashing
+- canonical Borsh encoding and domain-separated SHA3-512 hashing
+- typed block, transaction, state, and Merkle hashes
 - Argon2 proof-of-work hashing
 - ML-DSA-87 transaction signatures
-- ledger state, block validation, fork choice, and reorg handling
-- mempool, mining helpers, sled storage, and basic node/network primitives
+- account state transition and transaction validation
+- block validation, state root checks, fork choice, and reorg planning
+- reward, fee, supply cap, and maturity rules
+- genesis construction and core invariants
 
-Devnet transactions support simple fee tiers: slow 1 unit, normal 2 units, fast
-3 units, and aggressive 5 units. Mining rewards and received transaction credits
-are tracked with explicit spendable heights, so account views can separate
-spendable balance from unspendable confirmed funds.
+The crate intentionally stays focused on core logic. Node networking, local
+storage, transaction pool policy, wallet UX, and runtime services belong outside
+this layer and can call these primitives.
+
+Transactions support simple fee tiers: slow 1 unit, normal 2 units, fast 3
+units, and aggressive 5 units. Transaction outputs become spendable after the
+core finality depth, while block subsidy rewards mature separately.
 
 ## Status
 
-This is a devnet release. APIs, consensus parameters, storage format, and network
-messages can still change before a stable mainnet release.
+The core API and consensus parameters are still experimental and may change
+before a stable protocol release.
 
 ## Community
 
-Join the Paqus Matrix room for discussion, questions, and devnet coordination:
+Join the Paqus Matrix room for discussion, questions, and protocol development:
 https://matrix.to/#/#paqus:matrix.org
 
 ## Example
 
 ```rust
-use paqus::consensus::Consensus;
-use paqus::node::Node;
+use paqus::core::{Block, SignedTransaction};
+use paqus::codec::{hash_block, hash_signed_transaction};
 
-let node = Node::init_or_load(
-    "./paqus-devnet-db",
-    Consensus::with_default_config(),
-)?;
+fn inspect(block: &Block, tx: &SignedTransaction) {
+    let block_hash = hash_block(block);
+    let tx_hash = hash_signed_transaction(tx);
 
-println!("tip: {:?}", node.tip_height());
-# Ok::<(), Box<dyn std::error::Error>>(())
+    println!("block hash: {:?}", block_hash);
+    println!("tx hash: {:?}", tx_hash);
+}
 ```

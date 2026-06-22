@@ -1,5 +1,5 @@
 use crate::block::{Block, GenesisAllocation};
-use crate::genesis::error::GenesisError;
+use crate::error::GenesisError;
 use crate::ledger::{Ledger, calculate_state_root};
 use crate::params::{GENESIS_PREMINE, HASH_SIZE};
 use crate::state::Account;
@@ -10,10 +10,10 @@ pub const GENESIS_PREMINE_ADDRESS: Address = Address::ZERO;
 pub const GENESIS_MINER_ADDRESS: Address = Address::ZERO;
 pub const GENESIS_TIMESTAMP: u64 = 1_700_000_000;
 pub const GENESIS_HASH: [u8; HASH_SIZE] = [
-    245, 9, 234, 13, 174, 102, 145, 162, 254, 58, 251, 194, 6, 185, 240, 11, 186, 168, 135, 84, 55,
-    122, 9, 205, 81, 137, 170, 222, 73, 108, 89, 217, 18, 186, 42, 33, 121, 59, 106, 210, 29, 202,
-    128, 19, 29, 135, 193, 237, 181, 66, 52, 67, 210, 92, 136, 97, 126, 48, 138, 238, 171, 142,
-    240, 248,
+    50, 172, 1, 214, 84, 193, 254, 87, 209, 37, 6, 69, 107, 183, 35, 127, 75, 175, 33, 74, 53, 115,
+    177, 31, 205, 177, 40, 151, 77, 149, 134, 79, 64, 49, 133, 108, 174, 83, 168, 89, 197, 173,
+    197, 210, 136, 6, 112, 115, 149, 113, 5, 123, 113, 178, 87, 86, 66, 229, 204, 230, 209, 110,
+    254, 29,
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -1,4 +1,4 @@
-use crate::crypto::error::CryptoError;
+use crate::error::CryptoError;
 use crate::types::{PublicKey, SecretKey, Signature as PaqusSignatureBytes};
 use ml_dsa::{
     ExpandedSigningKey, Generate, Keypair, MlDsa87, Signature as MlDsaSignature, SignatureEncoding,

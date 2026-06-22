@@ -1,4 +1,4 @@
-use crate::state::error::StateError;
+use crate::error::StateError;
 use crate::transaction::Transaction;
 use crate::types::{AccountNonce, Address, Amount, Balance, BlockHeight, Nonce};
 use borsh::{BorshDeserialize, BorshSerialize};

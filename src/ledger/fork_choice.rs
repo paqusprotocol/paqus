@@ -30,7 +30,7 @@ impl ForkChoice {
             return Err(ForkChoiceError::DuplicateBlock);
         }
 
-        let parent = block.previous_hash();
+        let parent = BlockHash(block.previous_hash().0);
         let parent_work = if block.height() == Height(0) {
             if parent != Hash([0; HASH_SIZE]) {
                 return Err(ForkChoiceError::MissingParent);

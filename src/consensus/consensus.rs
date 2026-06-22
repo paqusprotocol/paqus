@@ -6,7 +6,7 @@ use crate::params::{
 use crate::types::{BlockHash, BlockHeight, Hash, Height, PreviousHash, ProofOfWorkHash};
 use argon2::{Algorithm, Argon2, Params, Version};
 
-use super::error::ConsensusError;
+use crate::error::ConsensusError;
 
 const ARGON2_POW_SALT: &[u8] = b"paquscore-pow-v1";
 const ARGON2_POW_MEMORY_KIB: u32 = 1024;

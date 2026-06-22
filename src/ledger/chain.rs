@@ -1,5 +1,5 @@
 use crate::block::Block;
-use crate::ledger::error::LedgerError;
+use crate::error::LedgerError;
 use crate::params::HASH_SIZE;
 use crate::types::{BlockHash, BlockHeight, Hash, Height};
 use std::collections::BTreeMap;
@@ -61,18 +61,18 @@ impl Chain {
                 }
 
                 if block.previous_hash() != tip_hash {
-                    return Err(LedgerError::InvalidPreviousHash);
+                    return Err(LedgerError::InvalidParent);
                 }
 
                 let tip_block = self
                     .blocks
                     .get(&tip_height)
-                    .ok_or(LedgerError::InvalidPreviousHash)?;
+                    .ok_or(LedgerError::InvalidParent)?;
                 if block.timestamp() < tip_block.timestamp() {
                     return Err(LedgerError::InvalidTimestamp);
                 }
             }
-            _ => return Err(LedgerError::InvalidPreviousHash),
+            _ => return Err(LedgerError::InvalidParent),
         }
 
         Ok(())

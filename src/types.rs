@@ -175,8 +175,77 @@ pub type BlockHeight = Height;
 pub type TransactionHeight = Height;
 pub type BlockNonce = Nonce;
 pub type AccountNonce = Nonce;
-pub type BlockHash = Hash;
-pub type TransactionHash = Hash;
-pub type MerkleHash = Hash;
-pub type StateRoot = Hash;
-pub type PreviousHash = Hash;
+
+macro_rules! hash_newtype {
+    ($name:ident) => {
+        #[derive(
+            Debug,
+            Clone,
+            Copy,
+            PartialEq,
+            Eq,
+            PartialOrd,
+            Ord,
+            Hash,
+            BorshSerialize,
+            BorshDeserialize,
+        )]
+        pub struct $name(pub HashBytes);
+
+        impl $name {
+            pub const ZERO: Self = Self([0; HASH_SIZE]);
+
+            pub fn as_hash(self) -> Hash {
+                Hash(self.0)
+            }
+        }
+
+        impl From<Hash> for $name {
+            fn from(hash: Hash) -> Self {
+                Self(hash.0)
+            }
+        }
+
+        impl From<$name> for Hash {
+            fn from(hash: $name) -> Self {
+                Hash(hash.0)
+            }
+        }
+
+        impl PartialEq<Hash> for $name {
+            fn eq(&self, other: &Hash) -> bool {
+                self.0 == other.0
+            }
+        }
+
+        impl PartialEq<$name> for Hash {
+            fn eq(&self, other: &$name) -> bool {
+                self.0 == other.0
+            }
+        }
+    };
+}
+
+hash_newtype!(BlockHash);
+hash_newtype!(TransactionHash);
+hash_newtype!(MerkleHash);
+hash_newtype!(StateRoot);
+hash_newtype!(PreviousHash);
+
+impl From<BlockHash> for PreviousHash {
+    fn from(hash: BlockHash) -> Self {
+        Self(hash.0)
+    }
+}
+
+impl PartialEq<BlockHash> for PreviousHash {
+    fn eq(&self, other: &BlockHash) -> bool {
+        self.0 == other.0
+    }
+}
+
+impl PartialEq<PreviousHash> for BlockHash {
+    fn eq(&self, other: &PreviousHash) -> bool {
+        self.0 == other.0
+    }
+}

@@ -1,4 +1,4 @@
-use crate::crypto::error::CryptoError;
+use crate::error::CryptoError;
 use crate::types::{Address, PublicKey};
 use sha3::{Digest, Sha3_512};
 

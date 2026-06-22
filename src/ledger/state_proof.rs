@@ -1,12 +1,9 @@
+use crate::codec::{HashDomain, canonical_bytes, domain_hash};
 use crate::params::HASH_SIZE;
 use crate::state::Account;
 use crate::types::{Address, Hash, StateRoot};
 use borsh::{BorshDeserialize, BorshSerialize};
-use sha3::{Digest, Sha3_512};
 use std::collections::BTreeMap;
-
-const STATE_LEAF_DOMAIN: &[u8] = b"PAQUS_STATE_LEAF_V1";
-const STATE_PARENT_DOMAIN: &[u8] = b"PAQUS_STATE_PARENT_V1";
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProofSide {
@@ -90,7 +87,7 @@ pub fn verify_account_state_proof(root: StateRoot, proof: &AccountStateProof) ->
 
 fn merkle_root(leaves: &mut Vec<Hash>) -> StateRoot {
     if leaves.is_empty() {
-        return Hash([0; HASH_SIZE]);
+        return StateRoot::ZERO;
     }
 
     while leaves.len() > 1 {
@@ -105,28 +102,16 @@ fn merkle_root(leaves: &mut Vec<Hash>) -> StateRoot {
             .collect();
     }
 
-    leaves[0]
+    StateRoot(leaves[0].0)
 }
 
 fn account_leaf_hash(account: &Account) -> Hash {
-    let mut bytes = Vec::new();
-    bytes.extend_from_slice(STATE_LEAF_DOMAIN);
-    bytes
-        .extend_from_slice(&borsh::to_vec(account).expect("account serialization should not fail"));
-    hash_bytes(&bytes)
+    domain_hash(HashDomain::AccountState, &canonical_bytes(account))
 }
 
 fn parent_hash(left: Hash, right: Hash) -> Hash {
-    let mut bytes = Vec::with_capacity(STATE_PARENT_DOMAIN.len() + HASH_SIZE * 2);
-    bytes.extend_from_slice(STATE_PARENT_DOMAIN);
+    let mut bytes = Vec::with_capacity(HASH_SIZE * 2);
     bytes.extend_from_slice(&left.0);
     bytes.extend_from_slice(&right.0);
-    hash_bytes(&bytes)
-}
-
-fn hash_bytes(bytes: &[u8]) -> Hash {
-    let digest = Sha3_512::digest(bytes);
-    let mut hash = [0_u8; HASH_SIZE];
-    hash.copy_from_slice(&digest);
-    Hash(hash)
+    domain_hash(HashDomain::StateNode, &bytes)
 }

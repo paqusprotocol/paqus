@@ -1,16 +1,17 @@
 pub mod block;
-pub mod cache;
+pub mod codec;
 pub mod consensus;
+pub mod core;
 pub mod crypto;
+pub mod error;
 pub mod genesis;
+pub mod invariants;
 pub mod ledger;
-pub mod mempool;
-pub mod miner;
-pub mod network;
-pub mod node;
 pub mod params;
 pub mod state;
-pub mod storage;
 pub mod transaction;
 pub mod types;
-pub mod wallet;
+pub mod version;
+
+#[cfg(test)]
+mod test;
