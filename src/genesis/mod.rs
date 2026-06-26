@@ -1,3 +1,5 @@
+#![allow(clippy::module_inception)]
+
 pub mod genesis;
 
 pub use crate::error::GenesisError;

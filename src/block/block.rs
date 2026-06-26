@@ -24,6 +24,7 @@ pub struct BlockHeader {
 }
 
 impl BlockHeader {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         height: BlockHeight,
         previous_hash: PreviousHash,
@@ -190,6 +191,7 @@ impl Block {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn with_coinbase(
         height: BlockHeight,
         previous_hash: impl Into<PreviousHash>,
@@ -213,6 +215,7 @@ impl Block {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn with_parts(
         height: BlockHeight,
         previous_hash: impl Into<PreviousHash>,
@@ -288,10 +291,10 @@ impl Block {
             return Err(BlockError::InvalidTransaction);
         }
 
-        if let Some(coinbase) = &self.coinbase {
-            if coinbase.to != self.header.miner_address {
-                return Err(BlockError::InvalidCoinbase);
-            }
+        if let Some(coinbase) = &self.coinbase
+            && coinbase.to != self.header.miner_address
+        {
+            return Err(BlockError::InvalidCoinbase);
         }
 
         if self

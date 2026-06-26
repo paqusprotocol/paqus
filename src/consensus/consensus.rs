@@ -8,8 +8,8 @@ use argon2::{Algorithm, Argon2, Params, Version};
 
 use crate::error::ConsensusError;
 
-const ARGON2_POW_SALT: &[u8] = b"paquscore-pow-v1";
-const ARGON2_POW_MEMORY_KIB: u32 = 1024;
+const ARGON2_POW_SALT: &[u8] = b"paquscore-proof-of-work";
+const ARGON2_POW_MEMORY_KIB: u32 = 256 * 1024; // 256MiB , mainnet 512 * 1024 512MiB
 const ARGON2_POW_TIME_COST: u32 = 1;
 const ARGON2_POW_PARALLELISM: u32 = 4;
 const ARGON2_POW_OUTPUT_LEN: usize = 32;
@@ -151,7 +151,7 @@ impl Consensus {
         hash: &ProofOfWorkHash,
         difficulty: u32,
     ) -> Result<(), ConsensusError> {
-        if difficulty < MIN_DIFFICULTY || difficulty > MAX_DIFFICULTY {
+        if !(MIN_DIFFICULTY..=MAX_DIFFICULTY).contains(&difficulty) {
             return Err(ConsensusError::InvalidDifficulty);
         }
 
@@ -173,7 +173,7 @@ impl Consensus {
         last_timestamp: u64,
         block_count: u64,
     ) -> Result<u32, ConsensusError> {
-        if current_difficulty < MIN_DIFFICULTY || current_difficulty > MAX_DIFFICULTY {
+        if !(MIN_DIFFICULTY..=MAX_DIFFICULTY).contains(&current_difficulty) {
             return Err(ConsensusError::InvalidDifficulty);
         }
 

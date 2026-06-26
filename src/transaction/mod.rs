@@ -1,4 +1,6 @@
+#![allow(clippy::module_inception)]
+
 pub mod transaction;
 
 pub use crate::error::TransactionError;
-pub use transaction::{FeeRate, SignedTransaction, Transaction, TransactionPayload};
+pub use transaction::{SignedTransaction, Transaction, TransactionPayload};

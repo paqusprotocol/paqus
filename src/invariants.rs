@@ -1,11 +1,8 @@
 use crate::error::{LedgerError, StateError};
 use crate::ledger::Ledger;
-use crate::params::MAX_UNIT_SUPPLY;
 
 pub fn validate_ledger_invariants(ledger: &Ledger) -> Result<(), LedgerError> {
-    if ledger.total_supply()?.0 > MAX_UNIT_SUPPLY {
-        return Err(LedgerError::SupplyOverflow);
-    }
+    ledger.total_supply()?;
 
     for (address, account) in &ledger.accounts {
         if account.address != *address {

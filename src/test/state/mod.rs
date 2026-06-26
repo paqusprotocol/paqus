@@ -1,4 +1,4 @@
-use crate::params::BASE_FEE;
+use crate::params::MIN_FEE;
 use crate::state::{Account, StateError};
 use crate::transaction::Transaction;
 use crate::types::{Address, Amount, Nonce};
@@ -12,7 +12,7 @@ fn transaction(nonce: u64) -> Transaction {
         address(1),
         address(2),
         Amount(10),
-        Amount(BASE_FEE),
+        Amount(MIN_FEE),
         Nonce(nonce),
     )
 }

@@ -21,15 +21,15 @@ pub enum HashDomain {
 impl HashDomain {
     fn tag(self) -> &'static [u8] {
         match self {
-            HashDomain::Transaction => b"PAQUS_HASH_TX_V1",
-            HashDomain::SignedTransaction => b"PAQUS_HASH_SIGNED_TX_V1",
-            HashDomain::BlockHeader => b"PAQUS_HASH_BLOCK_HEADER_V1",
-            HashDomain::GenesisAllocation => b"PAQUS_HASH_GENESIS_ALLOCATION_V1",
-            HashDomain::Coinbase => b"PAQUS_HASH_COINBASE_V1",
-            HashDomain::MerkleNode => b"PAQUS_HASH_MERKLE_NODE_V1",
-            HashDomain::AccountState => b"PAQUS_HASH_ACCOUNT_STATE_V1",
-            HashDomain::StateNode => b"PAQUS_HASH_STATE_NODE_V1",
-            HashDomain::Raw => b"PAQUS_HASH_RAW_V1",
+            HashDomain::Transaction => b"PAQUS_HASH_TX",
+            HashDomain::SignedTransaction => b"PAQUS_HASH_SIGNED_TX",
+            HashDomain::BlockHeader => b"PAQUS_HASH_BLOCK_HEADER",
+            HashDomain::GenesisAllocation => b"PAQUS_HASH_GENESIS_ALLOCATION",
+            HashDomain::Coinbase => b"PAQUS_HASH_COINBASE",
+            HashDomain::MerkleNode => b"PAQUS_HASH_MERKLE_NODE",
+            HashDomain::AccountState => b"PAQUS_HASH_ACCOUNT_STATE",
+            HashDomain::StateNode => b"PAQUS_HASH_STATE_NODE",
+            HashDomain::Raw => b"PAQUS_HASH_RAW",
         }
     }
 }

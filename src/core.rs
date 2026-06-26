@@ -39,7 +39,7 @@ pub use crate::ledger::{
     verify_account_state_proof,
 };
 pub use crate::state::{Account, Credit, CreditSource, StateError};
-pub use crate::transaction::{FeeRate, SignedTransaction, Transaction, TransactionError};
+pub use crate::transaction::{SignedTransaction, Transaction, TransactionError};
 pub use crate::types::*;
 pub use crate::version::{
     ProtocolVersions, active_versions, supported_block_version, supported_transaction_version,

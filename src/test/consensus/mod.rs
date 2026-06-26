@@ -3,8 +3,8 @@ use crate::consensus::{
     Consensus, ConsensusConfig, ConsensusError, block_reward, tail_emission_start_height,
 };
 use crate::params::{
-    BASE_FEE, BLOCK_REWARD, DIFFICULTY_ADJUSTMENT_INTERVAL, GENESIS_PREMINE, MAX_MINED_SUPPLY,
-    MAX_UNIT_SUPPLY, TAIL_EMISSION, TAIL_EMISSION_START_HEIGHT,
+    BLOCK_REWARD, BLOCK_TIME, DIFFICULTY_ADJUSTMENT_INTERVAL, GENESIS_PREMINE, MAX_MINED_SUPPLY,
+    MAX_UNIT_SUPPLY, MIN_FEE, TAIL_EMISSION, TAIL_EMISSION_START_HEIGHT,
 };
 use crate::transaction::{SignedTransaction, Transaction};
 use crate::types::{
@@ -18,7 +18,7 @@ fn signed_transaction(nonce: u64) -> SignedTransaction {
             Address([1; 20]),
             Address([2; 20]),
             Amount(10),
-            Amount(BASE_FEE),
+            Amount(MIN_FEE),
             Nonce(nonce),
         ),
         PublicKey([1; 2592]),
@@ -242,17 +242,18 @@ fn proof_of_work_hash_is_argon2_based_and_deterministic() {
 #[test]
 fn retargets_difficulty_from_block_timespan() {
     let consensus = Consensus::with_default_config();
+    let target_timespan = BLOCK_TIME as u64 * DIFFICULTY_ADJUSTMENT_INTERVAL;
 
     assert_eq!(
-        consensus.retarget_difficulty(2, 0, 1_500, DIFFICULTY_ADJUSTMENT_INTERVAL),
+        consensus.retarget_difficulty(2, 0, target_timespan / 2, DIFFICULTY_ADJUSTMENT_INTERVAL),
         Ok(3)
     );
     assert_eq!(
-        consensus.retarget_difficulty(2, 0, 4_500, DIFFICULTY_ADJUSTMENT_INTERVAL),
+        consensus.retarget_difficulty(2, 0, target_timespan * 2, DIFFICULTY_ADJUSTMENT_INTERVAL),
         Ok(1)
     );
     assert_eq!(
-        consensus.retarget_difficulty(2, 0, 3_000, DIFFICULTY_ADJUSTMENT_INTERVAL),
+        consensus.retarget_difficulty(2, 0, target_timespan, DIFFICULTY_ADJUSTMENT_INTERVAL),
         Ok(2)
     );
     assert_eq!(consensus.retarget_difficulty(2, 0, 10, 9), Ok(2));

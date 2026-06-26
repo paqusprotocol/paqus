@@ -1,6 +1,6 @@
 use crate::crypto::{address_from_public_key, generate_keypair, sign};
-use crate::params::BASE_FEE;
-use crate::transaction::{FeeRate, SignedTransaction, Transaction, TransactionError};
+use crate::params::MIN_FEE;
+use crate::transaction::{SignedTransaction, Transaction, TransactionError};
 use crate::types::{Address, Amount, Nonce, PublicKey, Signature};
 
 fn address(byte: u8) -> Address {
@@ -12,7 +12,7 @@ fn transaction() -> Transaction {
         address(1),
         address(2),
         Amount(10),
-        Amount(BASE_FEE),
+        Amount(MIN_FEE),
         Nonce(7),
     )
 }
@@ -38,20 +38,6 @@ fn validates_basic_transaction_rules() {
         same_addresses.validate(),
         Err(TransactionError::SameSenderAndRecipient)
     );
-}
-
-#[test]
-fn accepts_fee_tiers_at_or_above_minimum() {
-    let mut transaction = transaction();
-
-    transaction.fee = FeeRate::Slow.amount();
-    assert_eq!(transaction.validate(), Ok(()));
-    transaction.fee = FeeRate::Normal.amount();
-    assert_eq!(transaction.validate(), Ok(()));
-    transaction.fee = FeeRate::Fast.amount();
-    assert_eq!(transaction.validate(), Ok(()));
-    transaction.fee = FeeRate::Aggressive.amount();
-    assert_eq!(transaction.validate(), Ok(()));
 }
 
 #[test]
@@ -98,7 +84,7 @@ fn signed_transaction_requires_signature_material() {
 fn verifies_signed_transaction_signature_and_sender_address() {
     let keypair = generate_keypair();
     let from = address_from_public_key(&keypair.public_key);
-    let payload = Transaction::new(from, address(2), Amount(10), Amount(BASE_FEE), Nonce(0));
+    let payload = Transaction::new(from, address(2), Amount(10), Amount(MIN_FEE), Nonce(0));
     let signature = sign(&keypair.secret_key, &payload.signing_bytes());
     let signed = SignedTransaction::new(payload, keypair.public_key, signature);
 
@@ -111,7 +97,7 @@ fn verifies_signed_transaction_signature_and_sender_address() {
 fn rejects_signature_without_transaction_domain() {
     let keypair = generate_keypair();
     let from = address_from_public_key(&keypair.public_key);
-    let payload = Transaction::new(from, address(2), Amount(10), Amount(BASE_FEE), Nonce(0));
+    let payload = Transaction::new(from, address(2), Amount(10), Amount(MIN_FEE), Nonce(0));
     let signature = sign(&keypair.secret_key, &payload.to_bytes());
     let signed = SignedTransaction::new(payload, keypair.public_key, signature);
 
@@ -128,7 +114,7 @@ fn rejects_signed_transaction_with_wrong_sender_address() {
         address(1),
         address(2),
         Amount(10),
-        Amount(BASE_FEE),
+        Amount(MIN_FEE),
         Nonce(0),
     );
     let signature = sign(&keypair.secret_key, &payload.signing_bytes());
@@ -144,7 +130,7 @@ fn rejects_signed_transaction_with_wrong_sender_address() {
 fn rejects_signed_transaction_with_invalid_signature() {
     let keypair = generate_keypair();
     let from = address_from_public_key(&keypair.public_key);
-    let payload = Transaction::new(from, address(2), Amount(10), Amount(BASE_FEE), Nonce(0));
+    let payload = Transaction::new(from, address(2), Amount(10), Amount(MIN_FEE), Nonce(0));
     let mut signed = SignedTransaction::new(
         payload.clone(),
         keypair.public_key,

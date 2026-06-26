@@ -1,3 +1,5 @@
+#![allow(clippy::module_inception)]
+
 pub mod block;
 
 pub use crate::error::BlockError;

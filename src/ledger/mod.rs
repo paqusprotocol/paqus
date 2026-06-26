@@ -1,3 +1,5 @@
+#![allow(clippy::module_inception)]
+
 pub mod chain;
 pub mod fork_choice;
 pub mod ledger;

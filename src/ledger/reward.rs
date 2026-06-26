@@ -1,7 +1,7 @@
 use crate::block::Block;
 use crate::consensus::block_reward;
 use crate::ledger::{Ledger, LedgerError};
-use crate::params::{BLOCK_REWARD_MATURITY, FINALITY_DEPTH, MAX_UNIT_SUPPLY};
+use crate::params::{BLOCK_REWARD_MATURITY, FINALITY_DEPTH, GENESIS_PREMINE, MAX_MINED_SUPPLY};
 use crate::state::{Account, CreditSource};
 use crate::types::{Address, Amount, BlockHeight};
 
@@ -51,9 +51,19 @@ impl Ledger {
     }
 
     fn expected_mintable_subsidy(&self, scheduled_subsidy: Amount) -> Result<Amount, LedgerError> {
+        Ok(Amount(
+            scheduled_subsidy.0.min(self.remaining_mined_supply()?),
+        ))
+    }
+
+    pub fn mintable_subsidy(&self, height: BlockHeight) -> Result<Amount, LedgerError> {
+        self.expected_mintable_subsidy(block_reward(height))
+    }
+
+    pub fn remaining_mined_supply(&self) -> Result<u32, LedgerError> {
         let total = self.total_supply()?.0;
-        let remaining = MAX_UNIT_SUPPLY.saturating_sub(total);
-        Ok(Amount(scheduled_subsidy.0.min(remaining)))
+        let mined_supply = total.saturating_sub(GENESIS_PREMINE);
+        Ok(MAX_MINED_SUPPLY.saturating_sub(mined_supply))
     }
 
     fn credit_miner(

@@ -3,32 +3,13 @@ use crate::codec::{
 };
 use crate::crypto::{address_from_public_key, verify};
 use crate::error::TransactionError;
-use crate::params::{AGGRESSIVE_FEE, BASE_FEE, FAST_FEE, MAX_TX_SIZE, MIN_FEE, SLOW_FEE};
+use crate::params::{MAX_TX_SIZE, MIN_FEE};
 use crate::types::{AccountNonce, Address, Amount, PublicKey, Signature, TransactionHash};
 use crate::version::active_versions;
 use borsh::{BorshDeserialize, BorshSerialize};
 
 pub type TransactionPayload = Transaction;
 const TRANSACTION_SIGNATURE_DOMAIN: &[u8] = b"PAQUSCORE_TX_V1";
-
-#[derive(BorshSerialize, BorshDeserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum FeeRate {
-    Slow,
-    Normal,
-    Fast,
-    Aggressive,
-}
-
-impl FeeRate {
-    pub fn amount(self) -> Amount {
-        Amount(match self {
-            FeeRate::Slow => SLOW_FEE,
-            FeeRate::Normal => BASE_FEE,
-            FeeRate::Fast => FAST_FEE,
-            FeeRate::Aggressive => AGGRESSIVE_FEE,
-        })
-    }
-}
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Transaction {
@@ -67,7 +48,7 @@ impl Transaction {
             return Err(TransactionError::ZeroAmount);
         }
 
-        if self.fee.0 < MIN_FEE {
+        if self.fee.0 != MIN_FEE {
             return Err(TransactionError::InvalidFee);
         }
 
