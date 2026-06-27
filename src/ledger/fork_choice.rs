@@ -2,6 +2,48 @@ use crate::block::Block;
 use crate::params::HASH_SIZE;
 use crate::types::{BlockHash, BlockHeight, Hash, Height};
 use std::collections::BTreeMap;
+use std::ops::Add;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Work([u64; 4]);
+
+impl Work {
+    pub const ZERO: Self = Self([0, 0, 0, 0]);
+    pub const MAX: Self = Self([u64::MAX, u64::MAX, u64::MAX, u64::MAX]);
+
+    pub fn pow2(exponent: u32) -> Self {
+        if exponent >= 256 {
+            return Self::MAX;
+        }
+
+        let limb_from_low = (exponent / 64) as usize;
+        let bit = exponent % 64;
+        let mut limbs = [0; 4];
+        limbs[3 - limb_from_low] = 1_u64 << bit;
+        Self(limbs)
+    }
+
+    pub fn saturating_add(self, rhs: Self) -> Self {
+        let mut result = [0; 4];
+        let mut carry = 0_u128;
+
+        for index in (0..4).rev() {
+            let sum = self.0[index] as u128 + rhs.0[index] as u128 + carry;
+            result[index] = sum as u64;
+            carry = sum >> 64;
+        }
+
+        if carry > 0 { Self::MAX } else { Self(result) }
+    }
+}
+
+impl Add for Work {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        self.saturating_add(rhs)
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BlockNode {
@@ -9,8 +51,8 @@ pub struct BlockNode {
     pub hash: BlockHash,
     pub parent: BlockHash,
     pub height: BlockHeight,
-    pub work: u128,
-    pub cumulative_work: u128,
+    pub work: Work,
+    pub cumulative_work: Work,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -35,7 +77,7 @@ impl ForkChoice {
             if parent != Hash([0; HASH_SIZE]) {
                 return Err(ForkChoiceError::MissingParent);
             }
-            0
+            Work::ZERO
         } else {
             let parent_node = self
                 .nodes
@@ -139,6 +181,6 @@ pub enum ForkChoiceError {
     MissingParent,
 }
 
-pub fn block_work(difficulty: u32) -> u128 {
-    1_u128.checked_shl(difficulty.min(127)).unwrap_or(u128::MAX)
+pub fn block_work(difficulty: u32) -> Work {
+    Work::pow2(difficulty)
 }

@@ -15,6 +15,7 @@ pub enum HashDomain {
     MerkleNode,
     AccountState,
     StateNode,
+    SnapshotRoot,
     Raw,
 }
 
@@ -29,6 +30,7 @@ impl HashDomain {
             HashDomain::MerkleNode => b"PAQUS_HASH_MERKLE_NODE",
             HashDomain::AccountState => b"PAQUS_HASH_ACCOUNT_STATE",
             HashDomain::StateNode => b"PAQUS_HASH_STATE_NODE",
+            HashDomain::SnapshotRoot => crate::params::SNAPSHOT_ROOT_DOMAIN,
             HashDomain::Raw => b"PAQUS_HASH_RAW",
         }
     }

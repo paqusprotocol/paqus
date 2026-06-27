@@ -1,6 +1,6 @@
 use crate::block::Block;
 use crate::ledger::{Ledger, LedgerError};
-use crate::params::FINALITY_DEPTH;
+use crate::params::CONFIRMATION_DEPTH;
 use crate::state::Account;
 use crate::transaction::{SignedTransaction, Transaction};
 use crate::types::{Address, Amount, BlockHash, BlockHeight, StateRoot, TransactionHash};
@@ -26,7 +26,7 @@ pub struct BlockExecution {
 
 impl TransactionExecution {
     pub fn from_signed(transaction: &SignedTransaction) -> Self {
-        Self::from_payload(transaction.hash(), &transaction.payload)
+        Self::from_payload(transaction.hash(), &transaction.transaction)
     }
 
     pub fn from_payload(transaction_hash: TransactionHash, transaction: &Transaction) -> Self {
@@ -56,7 +56,7 @@ pub fn apply_transaction_to_state(
         sender.apply_outgoing_transaction(transaction, height)?;
     }
 
-    let spendable_height = crate::types::Height(height.0.saturating_add(FINALITY_DEPTH as u64));
+    let spendable_height = crate::types::Height(height.0.saturating_add(CONFIRMATION_DEPTH as u64));
     let receiver = accounts
         .entry(transaction.to)
         .or_insert_with(|| Account::new(transaction.to, Amount(0)));
@@ -80,7 +80,7 @@ pub fn validate_signed_transaction_against_state(
     height: BlockHeight,
 ) -> Result<(), LedgerError> {
     transaction.validate_signed().map_err(LedgerError::from)?;
-    validate_transaction_against_state(accounts, &transaction.payload, height)
+    validate_transaction_against_state(accounts, &transaction.transaction, height)
 }
 
 impl Ledger {
@@ -96,7 +96,7 @@ impl Ledger {
         let mut staged = self.clone();
         for transaction in &block.transactions {
             transaction.validate_signed().map_err(LedgerError::from)?;
-            staged.apply_transaction_at(&transaction.payload, block.height())?;
+            staged.apply_transaction_at(&transaction.transaction, block.height())?;
         }
 
         if block.is_genesis() {

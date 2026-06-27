@@ -1,8 +1,10 @@
 mod block;
+mod checkpoint;
 mod consensus;
 mod crypto;
 mod genesis;
 mod ledger;
+mod snapshot;
 mod spec;
 mod state;
 mod transaction;

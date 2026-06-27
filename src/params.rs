@@ -1,18 +1,19 @@
-pub const CHAIN_NAME: &str = "paqus";
+pub const CHAIN_NAME: &str = "Paqus";
 pub const CHAIN_ID: u8 = 1;
 pub const COIN_NAME: &str = "XPQ";
-pub const UNIT_NAME: &str = "QBit";
+pub const UNIT_NAME: &str = "paqus";
 pub const PROTOCOL_STAGE: &str = "Testnet";
-pub const PROTOCOL_VERSION: u8 = 1;
+pub const PROTOCOL_VERSION: u8 = 3;
+pub const NETWORK_MAGIC: [u8; 4] = [0x58, 0x50, 0x51, 0x03];
 pub const BLOCK_VERSION: u8 = 1;
-pub const TRANSACTION_VERSION: u8 = 1;
+pub const TRANSACTION_VERSION: u8 = 2;
 
 pub const UNIT: u32 = 1;
 pub const XPQ: u32 = 100;
 pub const DECIMALS: u8 = 2;
 
 pub const MAX_UNIT_SUPPLY: u32 = u32::MAX;
-pub const GENESIS_PREMINE: u32 = 95;  // 0.95 XPQ
+pub const GENESIS_PREMINE: u32 = 95; // 0.95 XPQ
 pub const MAX_XPQ_SUPPLY: u32 = MAX_UNIT_SUPPLY / XPQ;
 pub const MAX_MINED_SUPPLY: u32 = MAX_UNIT_SUPPLY - GENESIS_PREMINE;
 
@@ -28,8 +29,9 @@ pub const TAIL_EMISSION_START_HEIGHT: u64 = TAIL_EMISSION_START_YEARS * BLOCKS_P
 
 pub const BLOCK_REWARD: u32 = 5_000; // 50 XPQ
 pub const TAIL_EMISSION: u32 = 100; // 1 XPQ
-pub const BLOCK_REWARD_MATURITY: u32 = 10;
-pub const FINALITY_DEPTH: u32 = 1;
+pub const CONFIRMATION_DEPTH: u32 = 2;
+pub const BLOCK_REWARD_MATURITY: u32 = 15;
+pub const FINALITY_DEPTH: u32 = 50;
 pub const MIN_FEE: u32 = 2;
 
 pub const MIN_DIFFICULTY: u32 = 1;
@@ -38,6 +40,14 @@ pub const DIFFICULTY_START: u32 = 1;
 pub const DIFFICULTY_ADJUSTMENT_INTERVAL: u64 = 2016;
 pub const MIN_DIFFICULTY_TIMESPAN_FACTOR: u64 = 2;
 pub const MAX_FUTURE_TIME: u32 = 150 * SECOND;
+pub const MAX_TRANSACTION_AGE: u32 = CONFIRMATION_DEPTH * BLOCK_TIME;
+pub const MAX_TRANSACTION_FUTURE_TIME: u32 = BLOCK_TIME;
+
+pub const CHECKPOINT_INTERVAL: u64 = 10_000;
+pub const CHECKPOINT_MIN_CONFIRMATIONS: u32 = FINALITY_DEPTH;
+pub const SNAPSHOT_INTERVAL: u64 = 50_000;
+pub const SNAPSHOT_MIN_CONFIRMATIONS: u32 = FINALITY_DEPTH;
+pub const SNAPSHOT_ROOT_DOMAIN: &[u8] = b"PAQUS_SNAPSHOT_ROOT_V1";
 
 pub const ADDRESS_SIZE: usize = 20;
 pub const PUBLIC_KEY_SIZE: usize = 2_592;
@@ -47,5 +57,5 @@ pub const HASH_SIZE: usize = 64;
 pub const PROOF_OF_WORK_HASH_SIZE: usize = 32;
 
 pub const MAX_TX_SIZE: usize = 10 * 1024;
-pub const MAX_BLOCK_SIZE: usize = 2 * 1024 * 1024;
-pub const MAX_BLOCK_TXS: usize = 250;
+pub const MAX_BLOCK_SIZE: usize = 3 * 1024 * 1024;
+pub const MAX_BLOCK_TXS: usize = 350;

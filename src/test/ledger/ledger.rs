@@ -51,7 +51,7 @@ fn signed_transaction_from(
 
 fn funded_ledger(balance: u32) -> (Ledger, Address) {
     let signed = signed_transaction(0, address(2), 10);
-    let sender = signed.payload.from;
+    let sender = signed.transaction.from;
     let mut ledger = Ledger::new();
     ledger.create_account(sender, Amount(balance)).unwrap();
     ledger.create_account(address(2), Amount(5)).unwrap();
@@ -142,7 +142,7 @@ fn caps_minted_subsidy_at_remaining_supply() {
     let miner_account = ledger.account(&miner).unwrap();
     assert_eq!(miner_account.available_balance_at(Height(1)), Amount(0));
     assert_eq!(
-        miner_account.available_balance_at(Height(1 + crate::params::FINALITY_DEPTH as u64)),
+        miner_account.available_balance_at(Height(1 + crate::params::CONFIRMATION_DEPTH as u64)),
         Amount(crate::params::MIN_FEE)
     );
     assert_eq!(
@@ -243,7 +243,7 @@ fn applies_transaction_to_sender_and_receiver_accounts() {
 }
 
 #[test]
-fn transaction_outputs_mature_after_finality_depth() {
+fn transaction_outputs_mature_after_confirmation_depth() {
     let mut ledger = Ledger::new();
     ledger.create_account(address(1), Amount(100)).unwrap();
 
@@ -257,9 +257,10 @@ fn transaction_outputs_mature_after_finality_depth() {
 
     assert_eq!(ledger.apply_transaction_at(&transaction, Height(7)), Ok(()));
     let receiver = ledger.account(&address(2)).unwrap();
-    assert_eq!(receiver.available_balance_at(Height(8)), Amount(0));
+    let immature_height = Height(7 + crate::params::CONFIRMATION_DEPTH.saturating_sub(1) as u64);
+    assert_eq!(receiver.available_balance_at(immature_height), Amount(0));
     assert_eq!(
-        receiver.available_balance_at(Height(7 + crate::params::FINALITY_DEPTH as u64)),
+        receiver.available_balance_at(Height(7 + crate::params::CONFIRMATION_DEPTH as u64)),
         Amount(10)
     );
 }
@@ -308,7 +309,7 @@ fn creates_receiver_account_when_missing() {
 #[test]
 fn applies_genesis_block_and_tracks_tip() {
     let signed = signed_transaction(0, address(2), 10);
-    let sender = signed.payload.from;
+    let sender = signed.transaction.from;
     let mut ledger = Ledger::new();
     ledger.create_account(sender, Amount(100)).unwrap();
     ledger.create_account(address(2), Amount(5)).unwrap();
@@ -352,7 +353,7 @@ fn applies_genesis_block_and_tracks_tip() {
 #[test]
 fn validates_and_executes_block_without_mutating_original_ledger() {
     let signed = signed_transaction(0, address(2), 10);
-    let sender = signed.payload.from;
+    let sender = signed.transaction.from;
     let mut ledger = Ledger::new();
     ledger.create_account(sender, Amount(100)).unwrap();
     ledger.create_account(address(2), Amount(5)).unwrap();
@@ -410,7 +411,7 @@ fn rejects_non_genesis_first_block() {
 #[test]
 fn rejects_block_with_wrong_previous_hash() {
     let signed = signed_transaction(0, address(2), 10);
-    let sender = signed.payload.from;
+    let sender = signed.transaction.from;
     let mut ledger = Ledger::new();
     ledger.create_account(sender, Amount(100)).unwrap();
     ledger.create_account(address(2), Amount(5)).unwrap();
@@ -472,7 +473,7 @@ fn apply_block_is_atomic_when_later_transaction_fails() {
 #[test]
 fn rejects_block_with_wrong_state_root() {
     let signed = signed_transaction(0, address(2), 10);
-    let sender = signed.payload.from;
+    let sender = signed.transaction.from;
     let mut ledger = Ledger::new();
     ledger.create_account(sender, Amount(100)).unwrap();
     ledger.create_account(address(2), Amount(5)).unwrap();
@@ -499,7 +500,7 @@ fn rejects_block_with_wrong_state_root() {
 #[test]
 fn calculates_deterministic_state_root_after_block() {
     let signed = signed_transaction(0, address(2), 10);
-    let sender = signed.payload.from;
+    let sender = signed.transaction.from;
     let mut ledger = Ledger::new();
     ledger.create_account(sender, Amount(100)).unwrap();
     ledger.create_account(address(2), Amount(5)).unwrap();

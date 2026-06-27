@@ -2,6 +2,7 @@
 
 pub mod chain;
 pub mod fork_choice;
+pub mod invariants;
 pub mod ledger;
 pub mod reorg;
 pub mod reward;
@@ -10,6 +11,7 @@ pub mod transition;
 
 pub use crate::error::LedgerError;
 pub use chain::Chain;
+pub use invariants::validate_ledger_invariants;
 pub use ledger::Ledger;
 pub use reorg::{ReorgPlan, common_ancestor, plan_reorg};
 pub use state_proof::{

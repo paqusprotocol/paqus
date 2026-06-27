@@ -7,9 +7,10 @@ use crate::codec::{
 use crate::crypto::{address_from_public_key, generate_keypair, sign, verify};
 use crate::genesis::{GENESIS_HASH, genesis_block};
 use crate::ledger::Ledger;
+use crate::ledger::LedgerError;
 use crate::ledger::fork_choice::ForkChoice;
 use crate::ledger::{plan_reorg, validate_transaction_against_state};
-use crate::params::MIN_FEE;
+use crate::params::{FINALITY_DEPTH, MIN_FEE};
 use crate::transaction::{SignedTransaction, Transaction};
 use crate::types::{Address, Amount, Hash, Height, Nonce, PublicKey, Signature};
 use crate::version::{active_versions, supported_block_version, supported_transaction_version};
@@ -43,37 +44,41 @@ fn canonical_spec_vectors_are_stable() {
 
     assert_eq!(
         hex(&transaction_bytes(&transaction)),
-        "0106a9437610970c33def57a35aa4a8045c9e5819702020202020202020202020202020202020202020a000000020000000000000000000000"
+        "0206a9437610970c33def57a35aa4a8045c9e5819702020202020202020202020202020202020202020a0000000200000000000000000000000000000000000000"
     );
     assert_eq!(
         hex(&transaction.hash().0),
-        "50f2f095019b93bd397c05133a767e39a145e9e48bef7112af629bc2d4029cd9df261ce9c3755cf21c85746a4c64230b23006696c6918890983f1d6c158612a3"
+        "cfe1fc8c982764fe8860ab0e6cccbe2fdc1f8d3ee37e1ca7bdde85cdde27f925b21d5c716018ae0f81fb8de562d11df19c5c06e78c68f3f46d158765b39ae05f"
     );
-    assert_eq!(signed_transaction_bytes(&signed).len(), 7276);
+    assert_eq!(signed_transaction_bytes(&signed).len(), 7284);
     assert_eq!(
         hex(&signed.hash().0),
-        "871a225d9f9c305987a42b424749cc1805d02285b26a80fddf3f08806da3d734f97e19d7b9625a5a6f81254769caadf51ab0d51ff91611d929eb424201e1df1b"
+        "cfe1fc8c982764fe8860ab0e6cccbe2fdc1f8d3ee37e1ca7bdde85cdde27f925b21d5c716018ae0f81fb8de562d11df19c5c06e78c68f3f46d158765b39ae05f"
+    );
+    assert_eq!(
+        hex(&signed.wtxid().0),
+        "0a950c3e12369277bf70c2a198b0f3f9973faf2730d875c6a415c96fa1fb61305421fbb9802ea2b2cf0449179f6067dd37b8724d7cd7b66b00d1aca5982d4dc3"
     );
     assert_eq!(
         hex(&block_header_bytes(&block.header)),
-        "0100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000f4bf1e8910f238f1b3a5d93cd845c04b43b3db35edc25683be4112ca2d4fcbf3b222e58c3e736e956002a493917b88ee0c27a91d87b3a4eb5d2b053c9e2cb79409090909090909090909090909090909090909090100000000f15365000000000000000000000000"
+        "0100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000d42d379119b98a5809238c8be53c250bfe2b64ecac5fd762f2f5786d55a272a48610c96a9f78464ed36ec27d564bc009ca1738b5b834a77dd88ede7e6fa3e54f09090909090909090909090909090909090909090100000000f15365000000000000000000000000"
     );
     assert_eq!(
         hex(&block_bytes(&block)),
-        "0100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000f4bf1e8910f238f1b3a5d93cd845c04b43b3db35edc25683be4112ca2d4fcbf3b222e58c3e736e956002a493917b88ee0c27a91d87b3a4eb5d2b053c9e2cb79409090909090909090909090909090909090909090100000000f15365000000000000000000000000000000000000000000"
+        "0100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000d42d379119b98a5809238c8be53c250bfe2b64ecac5fd762f2f5786d55a272a48610c96a9f78464ed36ec27d564bc009ca1738b5b834a77dd88ede7e6fa3e54f09090909090909090909090909090909090909090100000000f15365000000000000000000000000000000000000000000"
     );
     assert_eq!(
         hex(&block.hash().0),
-        "9c927974f1f6d79695e224f6822b0e3cb4c3526c53a3117b15219ebb0eb01f4bbc53202fea575a31ca5fcac0d1f8af52de6452cd59feb532e8a9e0a71e285614"
+        "8eecacd13fb3259bd4d3d90e9a7f68ed63f1f3a829fdba47a93ed4522fc5219863962dced281df459cd52d099f3f01040bd0ab8e38a84669d564438aa3270d77"
     );
     assert_eq!(
         hex(&GENESIS_HASH),
-        "32ac01d654c1fe57d12506456bb7237f4baf214a3573b11fcdb128974d95864f4031856cae53a859c5adc5d2880670739571057b71b2575642e5cce6d16efe1d"
+        "47fd7ab96672a233d5ea12b6d273ae757c252715fbbcdf70a3ed80ce9fa893abaf16ad35c99118257e4708e36737113296fe01cc603c946e0e9822ef16e0803f"
     );
     assert_eq!(GENESIS_HASH, genesis_block().hash().0);
     assert_eq!(
         hex(&state_root_bytes(&state_root)),
-        "f4bf1e8910f238f1b3a5d93cd845c04b43b3db35edc25683be4112ca2d4fcbf3b222e58c3e736e956002a493917b88ee0c27a91d87b3a4eb5d2b053c9e2cb794"
+        "d42d379119b98a5809238c8be53c250bfe2b64ecac5fd762f2f5786d55a272a48610c96a9f78464ed36ec27d564bc009ca1738b5b834a77dd88ede7e6fa3e54f"
     );
 
     let keypair = generate_keypair();
@@ -140,7 +145,7 @@ fn invariants_versioning_reorg_and_hash_domains_are_explicit() {
     let to = Address([2; crate::params::ADDRESS_SIZE]);
     ledger.create_account(from, Amount(100)).unwrap();
     ledger.create_account(to, Amount(5)).unwrap();
-    crate::invariants::validate_ledger_invariants(&ledger).unwrap();
+    crate::ledger::validate_ledger_invariants(&ledger).unwrap();
 
     let transaction = Transaction::new(from, to, Amount(10), Amount(MIN_FEE), Nonce(0));
     assert_eq!(
@@ -188,5 +193,52 @@ fn invariants_versioning_reorg_and_hash_domains_are_explicit() {
     assert_ne!(
         domain_hash(HashDomain::Transaction, &bytes),
         domain_hash(HashDomain::BlockHeader, &bytes)
+    );
+}
+
+#[test]
+fn finalized_blocks_cannot_be_reorged() {
+    let miner = Address([9; crate::params::ADDRESS_SIZE]);
+    let genesis = Block::new(
+        Height(0),
+        Hash([0; crate::params::HASH_SIZE]),
+        miner,
+        1_700_000_000,
+        Nonce(0),
+        vec![],
+    );
+    let mut active = Ledger::new();
+    let mut fork_choice = ForkChoice::new();
+    active.chain.insert_block(genesis.clone()).unwrap();
+    fork_choice.insert_block(genesis.clone()).unwrap();
+
+    let mut previous = genesis;
+    for height in 1..=FINALITY_DEPTH as u64 + 1 {
+        let block = Block::new(
+            Height(height),
+            previous.hash(),
+            miner,
+            1_700_000_000 + height,
+            Nonce(height),
+            vec![],
+        );
+        active.chain.insert_block(block.clone()).unwrap();
+        fork_choice.insert_block(block.clone()).unwrap();
+        previous = block;
+    }
+
+    let side = Block::new(
+        Height(1),
+        active.block(&Height(0)).unwrap().hash(),
+        miner,
+        1_700_000_001,
+        Nonce(99),
+        vec![],
+    );
+    fork_choice.insert_block(side.clone()).unwrap();
+
+    assert_eq!(
+        plan_reorg(&active, &fork_choice, side.hash()),
+        Err(LedgerError::InvalidParent)
     );
 }

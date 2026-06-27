@@ -49,6 +49,52 @@ fn rejects_transaction_below_minimum_fee() {
 }
 
 #[test]
+fn validates_transaction_timestamp_window() {
+    let now = 1_700_000_000;
+    let valid = Transaction::new_at(
+        address(1),
+        address(2),
+        Amount(10),
+        Amount(MIN_FEE),
+        Nonce(7),
+        now,
+    );
+    assert_eq!(valid.validate_at(now), Ok(()));
+
+    let expired = Transaction::new_at(
+        address(1),
+        address(2),
+        Amount(10),
+        Amount(MIN_FEE),
+        Nonce(7),
+        now - crate::params::MAX_TRANSACTION_AGE as u64 - 1,
+    );
+    assert_eq!(expired.validate_at(now), Err(TransactionError::Expired));
+
+    let future = Transaction::new_at(
+        address(1),
+        address(2),
+        Amount(10),
+        Amount(MIN_FEE),
+        Nonce(7),
+        now + crate::params::MAX_TRANSACTION_FUTURE_TIME as u64 + 1,
+    );
+    assert_eq!(future.validate_at(now), Err(TransactionError::FromFuture));
+}
+
+#[test]
+fn validates_signed_transaction_timestamp_window() {
+    let keypair = generate_keypair();
+    let from = address_from_public_key(&keypair.public_key);
+    let now = 1_700_000_000;
+    let payload = Transaction::new_at(from, address(2), Amount(10), Amount(MIN_FEE), Nonce(0), now);
+    let signature = sign(&keypair.secret_key, &payload.signing_bytes());
+    let signed = SignedTransaction::new(payload, keypair.public_key, signature);
+
+    assert_eq!(signed.validate_signed_at(now), Ok(()));
+}
+
+#[test]
 fn hashes_are_deterministic_and_change_with_payload() {
     let mut changed = transaction();
     changed.nonce = Nonce(8);
@@ -62,7 +108,7 @@ fn signed_transaction_requires_signature_material() {
     let signed = SignedTransaction::new(transaction(), PublicKey([1; 2592]), Signature([1; 4627]));
 
     assert_eq!(signed.validate(), Ok(()));
-    assert_eq!(signed.payload_hash(), signed.payload.hash());
+    assert_eq!(signed.transaction_hash(), signed.transaction.hash());
     assert!(signed.serialized_size() <= crate::params::MAX_TX_SIZE);
 
     let without_key =
@@ -136,7 +182,7 @@ fn rejects_signed_transaction_with_invalid_signature() {
         keypair.public_key,
         sign(&keypair.secret_key, &payload.signing_bytes()),
     );
-    signed.signature.0[0] ^= 0xff;
+    signed.witness.signature.0[0] ^= 0xff;
 
     assert_eq!(
         signed.validate_signed(),

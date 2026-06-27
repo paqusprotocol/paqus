@@ -1,7 +1,7 @@
 use crate::block::Block;
 use crate::consensus::block_reward;
 use crate::ledger::{Ledger, LedgerError};
-use crate::params::{BLOCK_REWARD_MATURITY, FINALITY_DEPTH, GENESIS_PREMINE, MAX_MINED_SUPPLY};
+use crate::params::{BLOCK_REWARD_MATURITY, CONFIRMATION_DEPTH, GENESIS_PREMINE, MAX_MINED_SUPPLY};
 use crate::state::{Account, CreditSource};
 use crate::types::{Address, Amount, BlockHeight};
 
@@ -30,7 +30,8 @@ impl Ledger {
         fees: Amount,
         height: BlockHeight,
     ) -> Result<(), LedgerError> {
-        let spendable_height = crate::types::Height(height.0.saturating_add(FINALITY_DEPTH as u64));
+        let spendable_height =
+            crate::types::Height(height.0.saturating_add(CONFIRMATION_DEPTH as u64));
         self.credit_miner(miner_address, fees, spendable_height, CreditSource::Fee)
     }
 

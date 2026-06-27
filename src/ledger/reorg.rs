@@ -2,6 +2,7 @@ use crate::block::Block;
 use crate::error::LedgerError;
 use crate::ledger::Ledger;
 use crate::ledger::fork_choice::ForkChoice;
+use crate::params::FINALITY_DEPTH;
 use crate::types::BlockHash;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -20,6 +21,9 @@ pub fn plan_reorg(
     let old_tip = active.tip_hash();
     let ancestor =
         common_ancestor(old_tip, new_tip, fork_choice).ok_or(LedgerError::InvalidParent)?;
+    if reorg_crosses_finality_boundary(active, fork_choice, ancestor) {
+        return Err(LedgerError::InvalidParent);
+    }
     let apply = fork_choice
         .branch_from_ancestor(ancestor, new_tip)
         .ok_or(LedgerError::InvalidParent)?;
@@ -45,4 +49,20 @@ pub fn common_ancestor(
         .ancestor_hashes(new_tip)
         .into_iter()
         .find(|hash| old_ancestors.contains(hash))
+}
+
+fn reorg_crosses_finality_boundary(
+    active: &Ledger,
+    fork_choice: &ForkChoice,
+    ancestor: BlockHash,
+) -> bool {
+    let Some(tip_height) = active.tip_height() else {
+        return false;
+    };
+    let Some(ancestor) = fork_choice.get(&ancestor) else {
+        return true;
+    };
+
+    let first_replaced_height = ancestor.height.0.saturating_add(1);
+    tip_height.0 >= first_replaced_height.saturating_add(FINALITY_DEPTH as u64)
 }

@@ -86,7 +86,10 @@ impl Ledger {
         signed_transaction
             .validate_signed()
             .map_err(LedgerError::from)?;
-        self.apply_transaction_at(&signed_transaction.payload, crate::types::Height(u64::MAX))
+        self.apply_transaction_at(
+            &signed_transaction.transaction,
+            crate::types::Height(u64::MAX),
+        )
     }
 
     pub fn apply_transaction(&mut self, transaction: &Transaction) -> Result<(), LedgerError> {
