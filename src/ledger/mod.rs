@@ -1,11 +1,11 @@
 #![allow(clippy::module_inception)]
 
 pub mod chain;
+pub mod coinbase;
 pub mod fork_choice;
 pub mod invariants;
 pub mod ledger;
 pub mod reorg;
-pub mod reward;
 pub mod state_proof;
 pub mod transition;
 

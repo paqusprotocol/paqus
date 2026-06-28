@@ -6,7 +6,7 @@ use crate::state::{Account, CreditSource};
 use crate::types::{Address, Amount, BlockHeight};
 
 impl Ledger {
-    pub(crate) fn apply_block_reward(&mut self, block: &Block) -> Result<(), LedgerError> {
+    pub(crate) fn apply_coinbase(&mut self, block: &Block) -> Result<(), LedgerError> {
         let coinbase = block
             .coinbase
             .as_ref()

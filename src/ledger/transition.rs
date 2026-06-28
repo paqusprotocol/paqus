@@ -110,7 +110,7 @@ impl Ledger {
             return Ok(staged);
         }
 
-        staged.apply_block_reward(block)?;
+        staged.apply_coinbase(block)?;
         Ok(staged)
     }
 

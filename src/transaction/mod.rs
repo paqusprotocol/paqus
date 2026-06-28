@@ -3,7 +3,7 @@ use crate::codec::{
 };
 use crate::crypto::{address_from_public_key, verify};
 pub use crate::error::TransactionError;
-use crate::params::{MAX_TRANSACTION_AGE, MAX_TRANSACTION_FUTURE_TIME, MAX_TX_SIZE};
+use crate::params::MAX_TX_SIZE;
 use crate::types::{AccountNonce, Address, Amount, PublicKey, Signature, TransactionHash};
 use crate::version::{active_versions, supported_transaction_version};
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -74,26 +74,16 @@ impl Transaction {
         Ok(())
     }
 
-    pub fn validate_at(&self, now: u64) -> Result<(), TransactionError> {
-        self.validate_at_height(now, crate::types::Height(0))
+    pub fn validate_at(&self, _now: u64) -> Result<(), TransactionError> {
+        self.validate_at_height(_now, crate::types::Height(0))
     }
 
     pub fn validate_at_height(
         &self,
-        now: u64,
+        _now: u64,
         height: crate::types::BlockHeight,
     ) -> Result<(), TransactionError> {
-        self.validate_for_height(height)?;
-
-        if self.timestamp > now.saturating_add(MAX_TRANSACTION_FUTURE_TIME as u64) {
-            return Err(TransactionError::FromFuture);
-        }
-
-        if now.saturating_sub(self.timestamp) > MAX_TRANSACTION_AGE as u64 {
-            return Err(TransactionError::Expired);
-        }
-
-        Ok(())
+        self.validate_for_height(height)
     }
 
     pub fn hash(&self) -> TransactionHash {

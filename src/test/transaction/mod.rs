@@ -54,7 +54,7 @@ fn allows_zero_fee_at_core_validation_layer() {
 }
 
 #[test]
-fn validates_transaction_timestamp_window() {
+fn treats_transaction_timestamp_as_signed_metadata() {
     let now = 1_700_000_000;
     let valid = Transaction::new_at(
         address(1),
@@ -66,15 +66,15 @@ fn validates_transaction_timestamp_window() {
     );
     assert_eq!(valid.validate_at(now), Ok(()));
 
-    let expired = Transaction::new_at(
+    let old = Transaction::new_at(
         address(1),
         address(2),
         Amount(10),
         Amount(TEST_FEE),
         Nonce(7),
-        now - crate::params::MAX_TRANSACTION_AGE as u64 - 1,
+        now - 2 * 24 * 60 * 60,
     );
-    assert_eq!(expired.validate_at(now), Err(TransactionError::Expired));
+    assert_eq!(old.validate_at(now), Ok(()));
 
     let future = Transaction::new_at(
         address(1),
@@ -82,13 +82,13 @@ fn validates_transaction_timestamp_window() {
         Amount(10),
         Amount(TEST_FEE),
         Nonce(7),
-        now + crate::params::MAX_TRANSACTION_FUTURE_TIME as u64 + 1,
+        now + 2 * crate::params::BLOCK_TIME as u64,
     );
-    assert_eq!(future.validate_at(now), Err(TransactionError::FromFuture));
+    assert_eq!(future.validate_at(now), Ok(()));
 }
 
 #[test]
-fn validates_signed_transaction_timestamp_window() {
+fn signed_transaction_timestamp_policy_is_outside_core_validation() {
     let keypair = generate_keypair();
     let from = address_from_public_key(&keypair.public_key);
     let now = 1_700_000_000;

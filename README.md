@@ -69,6 +69,12 @@ Block subsidy rewards become spendable at:
 block_height + BLOCK_REWARD_MATURITY
 ```
 
+Fee price selection is node policy, not consensus. Core still accounts for the
+fee carried by each transaction, checks that a sender can pay `amount + fee`,
+and requires the block coinbase fee total to match the included transactions.
+Minimum relay fee, market fee, and pending transaction expiry are enforced by
+node mempool policy.
+
 Forks may only reorganize non-final blocks. A block is final once the active tip
 height is at least:
 
@@ -126,8 +132,11 @@ A transaction is valid when:
 - sender and recipient are different;
 - sender account exists;
 - sender nonce matches the transaction nonce;
-- sender can spend `amount + fee` at the current block height;
-- timestamp is not expired and not too far in the future.
+- sender can spend `amount + fee` at the current block height.
+
+Transaction timestamps are signed metadata. Core does not reject an otherwise
+valid transaction only because the timestamp is old or ahead of local wall
+clock. Relay age and future-time checks belong to node mempool policy.
 
 `Witness` stores the public key and signature. `SignedTransaction` stores the
 transaction payload plus its witness.
@@ -222,6 +231,13 @@ let _genesis_like = Block::new(
 ```
 
 ## Changelog
+
+### 0.1.9 - Mainnet
+
+- Moved transaction age/future-time filtering out of core consensus and into node mempool policy.
+- Kept transaction fees as sender-chosen transaction fields while removing core fee-price policy.
+- Split coinbase accounting so miner fees mature at confirmation depth and block subsidy matures at reward maturity.
+- Raised block future-time tolerance to two minutes and kept it as block consensus validation.
 
 ### 0.1.7 - Devnet
 
