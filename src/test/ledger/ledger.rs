@@ -2,10 +2,11 @@ use super::{Ledger, LedgerError, validate_transaction_against_state};
 use crate::block::{Block, CoinbaseTransaction};
 use crate::consensus::block_reward;
 use crate::crypto::{address_from_public_key, generate_keypair, sign};
-use crate::params::MIN_FEE;
 use crate::state::Account;
 use crate::transaction::{SignedTransaction, Transaction};
 use crate::types::{Address, Amount, Hash, Height, Nonce};
+
+const TEST_FEE: u32 = 2;
 
 fn address(byte: u8) -> Address {
     Address([byte; 20])
@@ -29,7 +30,7 @@ fn empty_genesis() -> Block {
 fn signed_transaction(nonce: u64, to: Address, amount: u32) -> SignedTransaction {
     let keypair = generate_keypair();
     let from = address_from_public_key(&keypair.public_key);
-    let payload = Transaction::new(from, to, Amount(amount), Amount(MIN_FEE), Nonce(nonce));
+    let payload = Transaction::new(from, to, Amount(amount), Amount(TEST_FEE), Nonce(nonce));
     let signature = sign(&keypair.secret_key, &payload.signing_bytes());
 
     SignedTransaction::new(payload, keypair.public_key, signature)
@@ -43,7 +44,7 @@ fn signed_transaction_from(
     nonce: u64,
 ) -> SignedTransaction {
     let from = address_from_public_key(&public_key);
-    let payload = Transaction::new(from, to, Amount(amount), Amount(MIN_FEE), Nonce(nonce));
+    let payload = Transaction::new(from, to, Amount(amount), Amount(TEST_FEE), Nonce(nonce));
     let signature = sign(secret_key, &payload.signing_bytes());
 
     SignedTransaction::new(payload, public_key, signature)
@@ -124,7 +125,7 @@ fn caps_minted_subsidy_at_remaining_supply() {
         Some(CoinbaseTransaction::new(
             miner,
             Amount(50),
-            Amount(crate::params::MIN_FEE),
+            Amount(TEST_FEE),
         )),
         vec![transaction],
     );
@@ -135,19 +136,16 @@ fn caps_minted_subsidy_at_remaining_supply() {
         ledger.total_supply(),
         Ok(Amount(crate::params::MAX_UNIT_SUPPLY))
     );
-    assert_eq!(
-        ledger.balance(&miner),
-        Some(Amount(50 + crate::params::MIN_FEE))
-    );
+    assert_eq!(ledger.balance(&miner), Some(Amount(50 + TEST_FEE)));
     let miner_account = ledger.account(&miner).unwrap();
     assert_eq!(miner_account.available_balance_at(Height(1)), Amount(0));
     assert_eq!(
         miner_account.available_balance_at(Height(1 + crate::params::CONFIRMATION_DEPTH as u64)),
-        Amount(crate::params::MIN_FEE)
+        Amount(TEST_FEE)
     );
     assert_eq!(
         miner_account.available_balance_at(Height(1 + crate::params::BLOCK_REWARD_MATURITY as u64)),
-        Amount(50 + crate::params::MIN_FEE)
+        Amount(50 + TEST_FEE)
     );
 }
 
@@ -174,11 +172,7 @@ fn accepts_zero_subsidy_when_supply_is_exhausted() {
         crate::params::DIFFICULTY_START,
         1_700_000_001,
         Nonce(0),
-        Some(CoinbaseTransaction::new(
-            miner,
-            Amount(0),
-            Amount(crate::params::MIN_FEE),
-        )),
+        Some(CoinbaseTransaction::new(miner, Amount(0), Amount(TEST_FEE))),
         vec![transaction],
     );
     block.set_state_root(ledger.state_root_after_block(&block).unwrap());
@@ -188,7 +182,7 @@ fn accepts_zero_subsidy_when_supply_is_exhausted() {
         ledger.total_supply(),
         Ok(Amount(crate::params::MAX_UNIT_SUPPLY))
     );
-    assert_eq!(ledger.balance(&miner), Some(Amount(crate::params::MIN_FEE)));
+    assert_eq!(ledger.balance(&miner), Some(Amount(TEST_FEE)));
 }
 
 #[test]
@@ -215,7 +209,7 @@ fn rejects_inexact_coinbase_subsidy() {
         Some(CoinbaseTransaction::new(
             miner,
             Amount(block_reward(Height(1)).0 - 1),
-            Amount(crate::params::MIN_FEE),
+            Amount(TEST_FEE),
         )),
         vec![transaction],
     );
@@ -232,12 +226,12 @@ fn applies_transaction_to_sender_and_receiver_accounts() {
         address(1),
         address(2),
         Amount(10),
-        Amount(MIN_FEE),
+        Amount(TEST_FEE),
         Nonce(0),
     );
 
     assert_eq!(ledger.apply_transaction(&transaction), Ok(()));
-    assert_eq!(ledger.balance(&address(1)), Some(Amount(88)));
+    assert_eq!(ledger.balance(&address(1)), Some(Amount(90 - TEST_FEE)));
     assert_eq!(ledger.balance(&address(2)), Some(Amount(15)));
     assert_eq!(ledger.account(&address(1)).unwrap().nonce, Nonce(1));
 }
@@ -251,7 +245,7 @@ fn transaction_outputs_mature_after_confirmation_depth() {
         address(1),
         address(2),
         Amount(10),
-        Amount(MIN_FEE),
+        Amount(TEST_FEE),
         Nonce(0),
     );
 
@@ -276,7 +270,7 @@ fn validates_transaction_against_account_state_without_ledger_runtime() {
         address(1),
         address(2),
         Amount(10),
-        Amount(MIN_FEE),
+        Amount(TEST_FEE),
         Nonce(0),
     );
 
@@ -297,12 +291,12 @@ fn creates_receiver_account_when_missing() {
         address(1),
         address(2),
         Amount(10),
-        Amount(MIN_FEE),
+        Amount(TEST_FEE),
         Nonce(0),
     );
 
     assert_eq!(ledger.apply_transaction(&transaction), Ok(()));
-    assert_eq!(ledger.balance(&address(1)), Some(Amount(88)));
+    assert_eq!(ledger.balance(&address(1)), Some(Amount(90 - TEST_FEE)));
     assert_eq!(ledger.balance(&address(2)), Some(Amount(10)));
 }
 
@@ -338,11 +332,11 @@ fn applies_genesis_block_and_tracks_tip() {
     assert_eq!(ledger.apply_block(block), Ok(()));
     assert_eq!(ledger.tip_height(), Some(Height(1)));
     assert_eq!(ledger.tip_hash(), Some(block_hash));
-    assert_eq!(ledger.balance(&sender), Some(Amount(88)));
+    assert_eq!(ledger.balance(&sender), Some(Amount(90 - TEST_FEE)));
     assert_eq!(ledger.balance(&address(2)), Some(Amount(15)));
     assert_eq!(
         ledger.balance(&miner()),
-        Some(Amount(block_reward(Height(1)).0 + crate::params::MIN_FEE))
+        Some(Amount(block_reward(Height(1)).0 + TEST_FEE))
     );
     assert_eq!(
         ledger.total_supply(),
@@ -380,13 +374,13 @@ fn validates_and_executes_block_without_mutating_original_ledger() {
     assert_eq!(ledger.tip_hash(), original_tip);
     assert_eq!(ledger.balance(&sender), original_sender_balance);
     assert_eq!(executed.tip_height(), Some(Height(1)));
-    assert_eq!(executed.balance(&sender), Some(Amount(88)));
+    assert_eq!(executed.balance(&sender), Some(Amount(90 - TEST_FEE)));
     assert_eq!(result.height, Height(1));
     assert_eq!(result.state_root_before, ledger.state_root());
     assert_eq!(result.state_root_after, expected_state_root);
     assert_eq!(result.transactions.len(), 1);
     assert_eq!(result.transactions[0].transaction_hash, signed.hash());
-    assert_eq!(result.transactions[0].fee, Amount(MIN_FEE));
+    assert_eq!(result.transactions[0].fee, Amount(TEST_FEE));
 }
 
 #[test]

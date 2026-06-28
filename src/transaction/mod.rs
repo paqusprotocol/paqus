@@ -3,9 +3,9 @@ use crate::codec::{
 };
 use crate::crypto::{address_from_public_key, verify};
 pub use crate::error::TransactionError;
-use crate::params::{MAX_TRANSACTION_AGE, MAX_TRANSACTION_FUTURE_TIME, MAX_TX_SIZE, MIN_FEE};
+use crate::params::{MAX_TRANSACTION_AGE, MAX_TRANSACTION_FUTURE_TIME, MAX_TX_SIZE};
 use crate::types::{AccountNonce, Address, Amount, PublicKey, Signature, TransactionHash};
-use crate::version::active_versions;
+use crate::version::{active_versions, supported_transaction_version};
 use borsh::{BorshDeserialize, BorshSerialize};
 
 const TRANSACTION_SIGNATURE_DOMAIN: &[u8] = b"PAQUSCORE_TX_V1";
@@ -52,16 +52,19 @@ impl Transaction {
     }
 
     pub fn validate(&self) -> Result<(), TransactionError> {
-        if self.version != active_versions(crate::types::Height(0)).transaction {
+        self.validate_for_height(crate::types::Height(0))
+    }
+
+    pub fn validate_for_height(
+        &self,
+        height: crate::types::BlockHeight,
+    ) -> Result<(), TransactionError> {
+        if !supported_transaction_version(height, self.version) {
             return Err(TransactionError::UnsupportedVersion);
         }
 
         if self.amount.0 == 0 {
             return Err(TransactionError::ZeroAmount);
-        }
-
-        if self.fee.0 != MIN_FEE {
-            return Err(TransactionError::InvalidFee);
         }
 
         if self.from == self.to {
@@ -72,7 +75,15 @@ impl Transaction {
     }
 
     pub fn validate_at(&self, now: u64) -> Result<(), TransactionError> {
-        self.validate()?;
+        self.validate_at_height(now, crate::types::Height(0))
+    }
+
+    pub fn validate_at_height(
+        &self,
+        now: u64,
+        height: crate::types::BlockHeight,
+    ) -> Result<(), TransactionError> {
+        self.validate_for_height(height)?;
 
         if self.timestamp > now.saturating_add(MAX_TRANSACTION_FUTURE_TIME as u64) {
             return Err(TransactionError::FromFuture);
@@ -133,9 +144,17 @@ impl SignedTransaction {
     }
 
     pub fn validate(&self) -> Result<(), TransactionError> {
-        self.transaction.validate()?;
+        self.validate_for_height(crate::types::Height(0))
+    }
 
-        if self.serialized_size() > MAX_TX_SIZE {
+    pub fn validate_for_height(
+        &self,
+        height: crate::types::BlockHeight,
+    ) -> Result<(), TransactionError> {
+        self.transaction.validate_for_height(height)?;
+
+        let serialized_size = self.serialized_size();
+        if serialized_size > MAX_TX_SIZE {
             return Err(TransactionError::TransactionTooLarge);
         }
 
@@ -151,9 +170,18 @@ impl SignedTransaction {
     }
 
     pub fn validate_at(&self, now: u64) -> Result<(), TransactionError> {
-        self.transaction.validate_at(now)?;
+        self.validate_at_height(now, crate::types::Height(0))
+    }
 
-        if self.serialized_size() > MAX_TX_SIZE {
+    pub fn validate_at_height(
+        &self,
+        now: u64,
+        height: crate::types::BlockHeight,
+    ) -> Result<(), TransactionError> {
+        self.transaction.validate_at_height(now, height)?;
+
+        let serialized_size = self.serialized_size();
+        if serialized_size > MAX_TX_SIZE {
             return Err(TransactionError::TransactionTooLarge);
         }
 
@@ -187,7 +215,14 @@ impl SignedTransaction {
     }
 
     pub fn validate_signed(&self) -> Result<(), TransactionError> {
-        self.validate()?;
+        self.validate_signed_for_height(crate::types::Height(0))
+    }
+
+    pub fn validate_signed_for_height(
+        &self,
+        height: crate::types::BlockHeight,
+    ) -> Result<(), TransactionError> {
+        self.validate_for_height(height)?;
 
         if self.sender_address() != self.transaction.from {
             return Err(TransactionError::SenderAddressMismatch);
@@ -197,7 +232,15 @@ impl SignedTransaction {
     }
 
     pub fn validate_signed_at(&self, now: u64) -> Result<(), TransactionError> {
-        self.validate_at(now)?;
+        self.validate_signed_at_height(now, crate::types::Height(0))
+    }
+
+    pub fn validate_signed_at_height(
+        &self,
+        now: u64,
+        height: crate::types::BlockHeight,
+    ) -> Result<(), TransactionError> {
+        self.validate_at_height(now, height)?;
 
         if self.sender_address() != self.transaction.from {
             return Err(TransactionError::SenderAddressMismatch);

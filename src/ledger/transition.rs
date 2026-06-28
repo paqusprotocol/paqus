@@ -79,7 +79,9 @@ pub fn validate_signed_transaction_against_state(
     transaction: &SignedTransaction,
     height: BlockHeight,
 ) -> Result<(), LedgerError> {
-    transaction.validate_signed().map_err(LedgerError::from)?;
+    transaction
+        .validate_signed_for_height(height)
+        .map_err(LedgerError::from)?;
     validate_transaction_against_state(accounts, &transaction.transaction, height)
 }
 
@@ -95,7 +97,9 @@ impl Ledger {
     pub(crate) fn staged_after_block(&self, block: &Block) -> Result<Self, LedgerError> {
         let mut staged = self.clone();
         for transaction in &block.transactions {
-            transaction.validate_signed().map_err(LedgerError::from)?;
+            transaction
+                .validate_signed_for_height(block.height())
+                .map_err(LedgerError::from)?;
             staged.apply_transaction_at(&transaction.transaction, block.height())?;
         }
 

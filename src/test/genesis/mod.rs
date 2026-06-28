@@ -1,9 +1,9 @@
 use crate::genesis::{
     GENESIS_HASH, GENESIS_PREMINE_ADDRESS, GenesisConfig, create_default_genesis_ledger,
-    create_genesis_block, create_genesis_ledger, genesis_block, genesis_ledger,
-    genesis_premine_amount,
+    create_genesis_block, create_genesis_ledger, genesis_block, genesis_block_for_chain,
+    genesis_ledger, genesis_premine_amount,
 };
-use crate::params::GENESIS_PREMINE;
+use crate::params::{CURRENT_CHAIN_PARAMS, DEVNET, GENESIS_PREMINE, MAINNET, TESTNET};
 use crate::types::{Address, Amount, Hash, Height};
 
 fn address(byte: u8) -> Address {
@@ -80,4 +80,38 @@ fn creates_default_genesis_ledger_with_genesis_premine_address() {
         ledger.balance(&GENESIS_PREMINE_ADDRESS),
         Some(Amount(GENESIS_PREMINE))
     );
+}
+
+#[test]
+fn chain_params_split_mainnet_testnet_and_devnet() {
+    assert_eq!(CURRENT_CHAIN_PARAMS, MAINNET);
+    assert_ne!(MAINNET.chain_id, TESTNET.chain_id);
+    assert_ne!(MAINNET.chain_id, DEVNET.chain_id);
+    assert_ne!(MAINNET.network_magic, TESTNET.network_magic);
+    assert_ne!(TESTNET.network_magic, DEVNET.network_magic);
+    assert_eq!(MAINNET.protocol_stage, "Mainnet");
+    assert_eq!(TESTNET.protocol_stage, "Testnet");
+    assert_eq!(DEVNET.protocol_stage, "Devnet");
+}
+
+#[test]
+fn genesis_is_selected_from_chain_params() {
+    assert_eq!(
+        genesis_block_for_chain(MAINNET).hash().0,
+        MAINNET.genesis.hash
+    );
+    assert_eq!(
+        genesis_block_for_chain(CURRENT_CHAIN_PARAMS).hash().0,
+        GENESIS_HASH
+    );
+}
+
+#[test]
+fn mainnet_zero_premine_address_is_intentional_supply_offset() {
+    assert_eq!(
+        MAINNET.genesis.premine_address,
+        [0; crate::params::ADDRESS_SIZE]
+    );
+    assert_eq!(GENESIS_PREMINE_ADDRESS, Address::ZERO);
+    assert_eq!(MAINNET.genesis.timestamp, 1_700_000_000);
 }

@@ -4,7 +4,7 @@ use crate::consensus::{
 };
 use crate::params::{
     BLOCK_REWARD, BLOCK_TIME, DIFFICULTY_ADJUSTMENT_INTERVAL, GENESIS_PREMINE, MAX_MINED_SUPPLY,
-    MAX_UNIT_SUPPLY, MIN_FEE, TAIL_EMISSION, TAIL_EMISSION_START_HEIGHT,
+    MAX_UNIT_SUPPLY, TAIL_EMISSION, TAIL_EMISSION_START_HEIGHT,
 };
 use crate::transaction::{SignedTransaction, Transaction};
 use crate::types::{
@@ -12,13 +12,15 @@ use crate::types::{
     Signature,
 };
 
+const TEST_FEE: u32 = 2;
+
 fn signed_transaction(nonce: u64) -> SignedTransaction {
     SignedTransaction::new(
         Transaction::new(
             Address([1; 20]),
             Address([2; 20]),
             Amount(10),
-            Amount(MIN_FEE),
+            Amount(TEST_FEE),
             Nonce(nonce),
         ),
         PublicKey([1; 2592]),
@@ -257,6 +259,49 @@ fn retargets_difficulty_from_block_timespan() {
         Ok(2)
     );
     assert_eq!(consensus.retarget_difficulty(2, 0, 10, 9), Ok(2));
+}
+
+#[test]
+fn retargets_difficulty_by_multiple_bits_for_large_hashrate_swings() {
+    let consensus = Consensus::with_default_config();
+    let target_timespan = BLOCK_TIME as u64 * DIFFICULTY_ADJUSTMENT_INTERVAL;
+
+    assert_eq!(
+        consensus.retarget_difficulty(10, 0, target_timespan / 4, DIFFICULTY_ADJUSTMENT_INTERVAL),
+        Ok(12)
+    );
+    assert_eq!(
+        consensus.retarget_difficulty(10, 0, target_timespan / 16, DIFFICULTY_ADJUSTMENT_INTERVAL),
+        Ok(14)
+    );
+    assert_eq!(
+        consensus.retarget_difficulty(10, 0, target_timespan * 4, DIFFICULTY_ADJUSTMENT_INTERVAL),
+        Ok(8)
+    );
+    assert_eq!(
+        consensus.retarget_difficulty(10, 0, target_timespan * 16, DIFFICULTY_ADJUSTMENT_INTERVAL),
+        Ok(6)
+    );
+}
+
+#[test]
+fn retarget_difficulty_clamps_to_protocol_bounds() {
+    let consensus = Consensus::with_default_config();
+    let target_timespan = BLOCK_TIME as u64 * DIFFICULTY_ADJUSTMENT_INTERVAL;
+
+    assert_eq!(
+        consensus.retarget_difficulty(
+            crate::params::MAX_DIFFICULTY - 1,
+            0,
+            target_timespan / 16,
+            DIFFICULTY_ADJUSTMENT_INTERVAL
+        ),
+        Ok(crate::params::MAX_DIFFICULTY)
+    );
+    assert_eq!(
+        consensus.retarget_difficulty(2, 0, target_timespan * 16, DIFFICULTY_ADJUSTMENT_INTERVAL),
+        Ok(crate::params::MIN_DIFFICULTY)
+    );
 }
 
 #[test]

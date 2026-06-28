@@ -5,7 +5,6 @@ use std::fmt;
 pub enum TransactionError {
     UnsupportedVersion,
     ZeroAmount,
-    InvalidFee,
     Expired,
     FromFuture,
     SameSenderAndRecipient,
@@ -25,7 +24,6 @@ impl fmt::Display for TransactionError {
             TransactionError::ZeroAmount => {
                 f.write_str("transaction amount must be greater than zero")
             }
-            TransactionError::InvalidFee => f.write_str("transaction fee is below minimum fee"),
             TransactionError::Expired => f.write_str("transaction timestamp is too old"),
             TransactionError::FromFuture => {
                 f.write_str("transaction timestamp is too far in the future")

@@ -1,7 +1,8 @@
-use crate::params::MIN_FEE;
 use crate::state::{Account, StateError};
 use crate::transaction::Transaction;
 use crate::types::{Address, Amount, Nonce};
+
+const TEST_FEE: u32 = 2;
 
 fn address(byte: u8) -> Address {
     Address([byte; 20])
@@ -12,7 +13,7 @@ fn transaction(nonce: u64) -> Transaction {
         address(1),
         address(2),
         Amount(10),
-        Amount(MIN_FEE),
+        Amount(TEST_FEE),
         Nonce(nonce),
     )
 }

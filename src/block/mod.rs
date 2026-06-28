@@ -287,7 +287,11 @@ impl Block {
             return Err(BlockError::FutureTimestamp);
         }
 
-        if self.transactions.iter().any(|tx| tx.validate().is_err()) {
+        if self
+            .transactions
+            .iter()
+            .any(|tx| tx.validate_for_height(self.height()).is_err())
+        {
             return Err(BlockError::InvalidTransaction);
         }
 

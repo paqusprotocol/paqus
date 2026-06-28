@@ -10,7 +10,7 @@ use crate::ledger::Ledger;
 use crate::ledger::LedgerError;
 use crate::ledger::fork_choice::ForkChoice;
 use crate::ledger::{plan_reorg, validate_transaction_against_state};
-use crate::params::{FINALITY_DEPTH, MIN_FEE};
+use crate::params::FINALITY_DEPTH;
 use crate::transaction::{SignedTransaction, Transaction};
 use crate::types::{Address, Amount, Hash, Height, Nonce, PublicKey, Signature};
 use crate::version::{active_versions, supported_block_version, supported_transaction_version};
@@ -19,13 +19,15 @@ fn hex(bytes: &[u8]) -> String {
     hex::encode(bytes)
 }
 
+const TEST_FEE: u32 = 2;
+
 #[test]
 fn canonical_spec_vectors_are_stable() {
     let public_key = PublicKey([3; crate::params::PUBLIC_KEY_SIZE]);
     let signature = Signature([4; crate::params::SIGNATURE_SIZE]);
     let from = address_from_public_key(&public_key);
     let to = Address([2; crate::params::ADDRESS_SIZE]);
-    let transaction = Transaction::new(from, to, Amount(10), Amount(MIN_FEE), Nonce(0));
+    let transaction = Transaction::new(from, to, Amount(10), Amount(TEST_FEE), Nonce(0));
     let signed = SignedTransaction::new(transaction.clone(), public_key, signature);
     let mut block = Block::new(
         Height(0),
@@ -109,7 +111,7 @@ fn decode_validation_rejects_invalid_or_mismatched_bytes() {
         Address([1; crate::params::ADDRESS_SIZE]),
         Address([2; crate::params::ADDRESS_SIZE]),
         Amount(10),
-        Amount(MIN_FEE),
+        Amount(TEST_FEE),
         Nonce(0),
     );
     assert_eq!(
@@ -121,7 +123,7 @@ fn decode_validation_rejects_invalid_or_mismatched_bytes() {
         Address([1; crate::params::ADDRESS_SIZE]),
         Address([1; crate::params::ADDRESS_SIZE]),
         Amount(10),
-        Amount(MIN_FEE),
+        Amount(TEST_FEE),
         Nonce(0),
     );
     assert!(decode_transaction(&transaction_bytes(&same_sender)).is_err());
@@ -147,7 +149,7 @@ fn invariants_versioning_reorg_and_hash_domains_are_explicit() {
     ledger.create_account(to, Amount(5)).unwrap();
     crate::ledger::validate_ledger_invariants(&ledger).unwrap();
 
-    let transaction = Transaction::new(from, to, Amount(10), Amount(MIN_FEE), Nonce(0));
+    let transaction = Transaction::new(from, to, Amount(10), Amount(TEST_FEE), Nonce(0));
     assert_eq!(
         validate_transaction_against_state(&ledger.accounts, &transaction, Height(1)),
         Ok(())

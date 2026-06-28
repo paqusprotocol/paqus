@@ -1,7 +1,9 @@
 use crate::block::{Block, BlockError};
-use crate::params::{MAX_FUTURE_TIME, MIN_FEE};
+use crate::params::MAX_FUTURE_TIME;
 use crate::transaction::{SignedTransaction, Transaction};
 use crate::types::{Address, Amount, Hash, Height, Nonce, PublicKey, Signature};
+
+const TEST_FEE: u32 = 2;
 
 fn signed_transaction(nonce: u64) -> SignedTransaction {
     SignedTransaction::new(
@@ -9,7 +11,7 @@ fn signed_transaction(nonce: u64) -> SignedTransaction {
             Address([1; 20]),
             Address([2; 20]),
             Amount(10),
-            Amount(MIN_FEE),
+            Amount(TEST_FEE),
             Nonce(nonce),
         ),
         PublicKey([1; 2592]),
@@ -145,7 +147,7 @@ fn reports_miner_revenue_from_subsidy_and_fees() {
     let revenue = block.miner_revenue(Amount(2_500));
 
     assert_eq!(revenue.subsidy, Amount(2_500));
-    assert_eq!(revenue.fees, Amount(MIN_FEE * 2));
+    assert_eq!(revenue.fees, Amount(TEST_FEE * 2));
 }
 
 #[test]

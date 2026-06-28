@@ -47,13 +47,12 @@ use a similar name, mark, or terminology.
 CHAIN_NAME = Paqus
 COIN_NAME = XPQ
 UNIT_NAME = paqus
-PROTOCOL_STAGE = Testnet
+PROTOCOL_STAGE = Mainnet
 PROTOCOL_VERSION = 3
 BLOCK_TIME = 5 minutes
-CONFIRMATION_DEPTH = 2 blocks
-BLOCK_REWARD_MATURITY = 15 blocks
-FINALITY_DEPTH = 50 blocks
-MIN_FEE = 2 paqus
+CONFIRMATION_DEPTH = 10 blocks
+BLOCK_REWARD_MATURITY = 120 blocks
+FINALITY_DEPTH = 100 blocks
 BLOCK_REWARD = 5_000 paqus
 TAIL_EMISSION = 100 paqus
 ```
@@ -123,7 +122,7 @@ A transaction is valid when:
 
 - the transaction version is supported;
 - amount is non-zero;
-- fee equals `MIN_FEE`;
+- fee fits in the transaction amount type;
 - sender and recipient are different;
 - sender account exists;
 - sender nonce matches the transaction nonce;

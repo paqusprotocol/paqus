@@ -1,7 +1,7 @@
 use crate::block::Block;
 use crate::params::{
     BLOCK_TIME, DIFFICULTY_ADJUSTMENT_INTERVAL, DIFFICULTY_START, HASH_SIZE, MAX_DIFFICULTY,
-    MIN_DIFFICULTY, MIN_DIFFICULTY_TIMESPAN_FACTOR, PROOF_OF_WORK_HASH_SIZE,
+    MAX_DIFFICULTY_ADJUSTMENT_BITS, MIN_DIFFICULTY, PROOF_OF_WORK_HASH_SIZE,
 };
 use crate::types::{BlockHash, BlockHeight, Hash, Height, PreviousHash, ProofOfWorkHash};
 use argon2::{Algorithm, Argon2, Params, Version};
@@ -182,21 +182,54 @@ impl Consensus {
         }
 
         let target_timespan = BLOCK_TIME as u64 * block_count;
-        let min_timespan = target_timespan / MIN_DIFFICULTY_TIMESPAN_FACTOR;
-        let max_timespan = target_timespan * MIN_DIFFICULTY_TIMESPAN_FACTOR;
+        let min_timespan = target_timespan / crate::params::DIFFICULTY_TIMESPAN_CLAMP_FACTOR;
+        let max_timespan =
+            target_timespan.saturating_mul(crate::params::DIFFICULTY_TIMESPAN_CLAMP_FACTOR);
         let actual_timespan = last_timestamp
             .saturating_sub(first_timestamp)
             .clamp(min_timespan.max(1), max_timespan.max(1));
 
-        let mut next = current_difficulty;
-        if actual_timespan < target_timespan {
-            next = next.saturating_add(1);
-        } else if actual_timespan > target_timespan {
-            next = next.saturating_sub(1);
-        }
+        let adjustment = difficulty_adjustment_bits(target_timespan, actual_timespan);
+        let next = if adjustment >= 0 {
+            current_difficulty.saturating_add(adjustment as u32)
+        } else {
+            current_difficulty.saturating_sub(adjustment.unsigned_abs())
+        };
 
         Ok(next.clamp(MIN_DIFFICULTY, MAX_DIFFICULTY))
     }
+}
+
+fn difficulty_adjustment_bits(target_timespan: u64, actual_timespan: u64) -> i32 {
+    if target_timespan == 0 || actual_timespan == 0 {
+        return MAX_DIFFICULTY_ADJUSTMENT_BITS as i32;
+    }
+
+    let mut adjustment = 0_i32;
+    let mut fast_threshold = target_timespan / 2;
+    while fast_threshold > 0
+        && actual_timespan <= fast_threshold
+        && adjustment < MAX_DIFFICULTY_ADJUSTMENT_BITS as i32
+    {
+        adjustment += 1;
+        fast_threshold /= 2;
+    }
+
+    if adjustment > 0 {
+        return adjustment;
+    }
+
+    let mut slow_threshold = target_timespan.saturating_mul(2);
+    while actual_timespan >= slow_threshold && adjustment > -(MAX_DIFFICULTY_ADJUSTMENT_BITS as i32)
+    {
+        adjustment -= 1;
+        let Some(next_threshold) = slow_threshold.checked_mul(2) else {
+            break;
+        };
+        slow_threshold = next_threshold;
+    }
+
+    adjustment
 }
 
 fn argon2_proof_of_work_hash(block: &Block) -> Result<ProofOfWorkHash, ConsensusError> {
