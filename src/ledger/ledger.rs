@@ -4,7 +4,7 @@ use crate::ledger::chain::Chain;
 use crate::ledger::{AccountStateProof, calculate_state_root, create_account_state_proof};
 use crate::params::HASH_SIZE;
 use crate::state::Account;
-use crate::transaction::{SignedTransaction, Transaction};
+use crate::transaction::SignedTransaction;
 use crate::types::{Address, Amount, Balance, BlockHash, BlockHeight};
 use std::collections::BTreeMap;
 
@@ -86,14 +86,15 @@ impl Ledger {
         signed_transaction
             .validate_signed()
             .map_err(LedgerError::from)?;
-        self.apply_transaction_at(
-            &signed_transaction.transaction,
-            crate::types::Height(u64::MAX),
-        )
+        self.apply_transaction_at(&signed_transaction.transaction, crate::types::Height(0))
     }
 
-    pub fn apply_transaction(&mut self, transaction: &Transaction) -> Result<(), LedgerError> {
-        self.apply_transaction_at(transaction, crate::types::Height(u64::MAX))
+    #[cfg(test)]
+    pub(crate) fn apply_transaction(
+        &mut self,
+        transaction: &crate::transaction::Transaction,
+    ) -> Result<(), LedgerError> {
+        self.apply_transaction_at(transaction, crate::types::Height(0))
     }
 
     pub fn apply_block(&mut self, mut block: Block) -> Result<(), LedgerError> {

@@ -9,9 +9,9 @@ use argon2::{Algorithm, Argon2, Params, Version};
 use crate::error::ConsensusError;
 
 const ARGON2_POW_SALT: &[u8] = b"paquscore-proof-of-work";
-const ARGON2_POW_MEMORY_KIB: u32 = 256 * 1024; // 256MiB , mainnet 512 * 1024 512MiB
+const ARGON2_POW_MEMORY_KIB: u32 = 512 * 1024; // 512MiB
 const ARGON2_POW_TIME_COST: u32 = 1;
-const ARGON2_POW_PARALLELISM: u32 = 4;
+const ARGON2_POW_PARALLELISM: u32 = 2;
 const ARGON2_POW_OUTPUT_LEN: usize = 32;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

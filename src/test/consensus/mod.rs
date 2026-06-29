@@ -2,30 +2,31 @@ use crate::block::{Block, BlockError};
 use crate::consensus::{
     Consensus, ConsensusConfig, ConsensusError, block_reward, tail_emission_start_height,
 };
+use crate::crypto::{address_from_public_key, generate_keypair, sign};
 use crate::params::{
     BLOCK_REWARD, BLOCK_TIME, DIFFICULTY_ADJUSTMENT_INTERVAL, GENESIS_PREMINE, MAX_MINED_SUPPLY,
     MAX_UNIT_SUPPLY, TAIL_EMISSION, TAIL_EMISSION_START_HEIGHT,
 };
 use crate::transaction::{SignedTransaction, Transaction};
 use crate::types::{
-    Address, Amount, BlockHash, Hash, Height, Nonce, PreviousHash, ProofOfWorkHash, PublicKey,
-    Signature,
+    Address, Amount, BlockHash, Hash, Height, Nonce, PreviousHash, ProofOfWorkHash,
 };
 
 const TEST_FEE: u32 = 2;
 
 fn signed_transaction(nonce: u64) -> SignedTransaction {
-    SignedTransaction::new(
-        Transaction::new(
-            Address([1; 20]),
-            Address([2; 20]),
-            Amount(10),
-            Amount(TEST_FEE),
-            Nonce(nonce),
-        ),
-        PublicKey([1; 2592]),
-        Signature([1; 4627]),
-    )
+    let keypair = generate_keypair();
+    let from = address_from_public_key(&keypair.public_key);
+    let transaction = Transaction::new(
+        from,
+        Address([2; 20]),
+        Amount(10),
+        Amount(TEST_FEE),
+        Nonce(nonce),
+    );
+    let signature = sign(&keypair.secret_key, &transaction.signing_bytes());
+
+    SignedTransaction::new(transaction, keypair.public_key, signature)
 }
 
 fn block(height: u64, previous_hash: impl Into<PreviousHash>) -> Block {

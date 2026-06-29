@@ -40,7 +40,7 @@ impl TransactionExecution {
     }
 }
 
-pub fn apply_transaction_to_state(
+pub(crate) fn apply_transaction_to_state(
     accounts: &mut BTreeMap<Address, Account>,
     transaction: &Transaction,
     height: BlockHeight,
@@ -136,9 +136,7 @@ impl Ledger {
 
         let staged = self.staged_after_block(block)?;
         let expected_state_root = staged.state_root();
-        if block.state_root() != crate::types::Hash([0; crate::params::HASH_SIZE])
-            && block.state_root() != expected_state_root
-        {
+        if !block.is_genesis() && block.state_root() != expected_state_root {
             return Err(LedgerError::InvalidStateRoot);
         }
 

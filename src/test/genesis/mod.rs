@@ -3,7 +3,7 @@ use crate::genesis::{
     create_genesis_block, create_genesis_ledger, genesis_block, genesis_block_for_chain,
     genesis_ledger, genesis_premine_amount,
 };
-use crate::params::{CURRENT_CHAIN_PARAMS, DEVNET, GENESIS_PREMINE, MAINNET, TESTNET};
+use crate::params::{CURRENT_CHAIN_PARAMS, GENESIS_PREMINE, PAQUS_CHAIN};
 use crate::types::{Address, Amount, Hash, Height};
 
 fn address(byte: u8) -> Address {
@@ -83,22 +83,18 @@ fn creates_default_genesis_ledger_with_genesis_premine_address() {
 }
 
 #[test]
-fn chain_params_split_mainnet_testnet_and_devnet() {
-    assert_eq!(CURRENT_CHAIN_PARAMS, MAINNET);
-    assert_ne!(MAINNET.chain_id, TESTNET.chain_id);
-    assert_ne!(MAINNET.chain_id, DEVNET.chain_id);
-    assert_ne!(MAINNET.network_magic, TESTNET.network_magic);
-    assert_ne!(TESTNET.network_magic, DEVNET.network_magic);
-    assert_eq!(MAINNET.protocol_stage, "Mainnet");
-    assert_eq!(TESTNET.protocol_stage, "Testnet");
-    assert_eq!(DEVNET.protocol_stage, "Devnet");
+fn chain_params_use_one_protocol_identity() {
+    assert_eq!(CURRENT_CHAIN_PARAMS, PAQUS_CHAIN);
+    assert_eq!(PAQUS_CHAIN.chain_name, "Paqus");
+    assert_eq!(PAQUS_CHAIN.coin_name, "XPQ");
+    assert_eq!(PAQUS_CHAIN.protocol_stage, "Mainnet");
 }
 
 #[test]
 fn genesis_is_selected_from_chain_params() {
     assert_eq!(
-        genesis_block_for_chain(MAINNET).hash().0,
-        MAINNET.genesis.hash
+        genesis_block_for_chain(PAQUS_CHAIN).hash().0,
+        PAQUS_CHAIN.genesis.hash
     );
     assert_eq!(
         genesis_block_for_chain(CURRENT_CHAIN_PARAMS).hash().0,
@@ -109,9 +105,9 @@ fn genesis_is_selected_from_chain_params() {
 #[test]
 fn mainnet_zero_premine_address_is_intentional_supply_offset() {
     assert_eq!(
-        MAINNET.genesis.premine_address,
+        PAQUS_CHAIN.genesis.premine_address,
         [0; crate::params::ADDRESS_SIZE]
     );
     assert_eq!(GENESIS_PREMINE_ADDRESS, Address::ZERO);
-    assert_eq!(MAINNET.genesis.timestamp, 1_700_000_000);
+    assert_eq!(PAQUS_CHAIN.genesis.timestamp, 1_700_000_000);
 }

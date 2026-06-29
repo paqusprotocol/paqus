@@ -129,6 +129,30 @@ fn decode_validation_rejects_invalid_or_mismatched_bytes() {
     assert!(decode_transaction(&transaction_bytes(&same_sender)).is_err());
     assert!(decode_signed_transaction(&[1, 2, 3]).is_err());
 
+    let keypair = generate_keypair();
+    let from = address_from_public_key(&keypair.public_key);
+    let signed_payload = Transaction::new(
+        from,
+        Address([2; crate::params::ADDRESS_SIZE]),
+        Amount(10),
+        Amount(TEST_FEE),
+        Nonce(0),
+    );
+    let valid_signature = sign(&keypair.secret_key, &signed_payload.signing_bytes());
+    let valid_signed =
+        SignedTransaction::new(signed_payload.clone(), keypair.public_key, valid_signature);
+    assert_eq!(
+        decode_signed_transaction(&signed_transaction_bytes(&valid_signed)),
+        Ok(valid_signed)
+    );
+
+    let invalid_signed = SignedTransaction::new(
+        signed_payload,
+        keypair.public_key,
+        Signature([1; crate::params::SIGNATURE_SIZE]),
+    );
+    assert!(decode_signed_transaction(&signed_transaction_bytes(&invalid_signed)).is_err());
+
     let block = Block::new(
         Height(0),
         Hash([0; crate::params::HASH_SIZE]),

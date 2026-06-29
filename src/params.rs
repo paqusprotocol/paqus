@@ -55,11 +55,11 @@ pub const DIFFICULTY_TIMESPAN_CLAMP_FACTOR: u64 = 16;
 pub const MAX_DIFFICULTY_ADJUSTMENT_BITS: u32 = 4;
 pub const MAX_FUTURE_TIME: u32 = 2 * MINUTE;
 
-pub const CHECKPOINT_INTERVAL: u64 = 10_000;
-pub const CHECKPOINT_MIN_CONFIRMATIONS: u32 = FINALITY_DEPTH;
 pub const SNAPSHOT_INTERVAL: u64 = 50_000;
 pub const SNAPSHOT_MIN_CONFIRMATIONS: u32 = FINALITY_DEPTH;
 pub const SNAPSHOT_ROOT_DOMAIN: &[u8] = b"PAQUS_SNAPSHOT_ROOT_V1";
+pub const CHECKPOINT_INTERVAL: u64 = SNAPSHOT_INTERVAL;
+pub const CHECKPOINT_MIN_CONFIRMATIONS: u32 = FINALITY_DEPTH;
 
 pub const ADDRESS_SIZE: usize = 20;
 pub const PUBLIC_KEY_SIZE: usize = 2_592;
@@ -72,7 +72,7 @@ pub const MAX_TX_SIZE: usize = 10 * 1024;
 pub const MAX_BLOCK_SIZE: usize = 3 * 1024 * 1024;
 pub const MAX_BLOCK_TXS: usize = 350;
 
-pub const MAINNET: ChainParams = ChainParams {
+pub const PAQUS_CHAIN: ChainParams = ChainParams {
     chain_name: "Paqus",
     chain_id: 747,
     coin_name: "XPQ",
@@ -101,37 +101,7 @@ pub const MAINNET: ChainParams = ChainParams {
     },
 };
 
-pub const TESTNET: ChainParams = ChainParams {
-    chain_name: "Paqus",
-    chain_id: 74,
-    coin_name: "tXPQ",
-    unit_name: "paqus",
-    protocol_stage: "Testnet",
-    protocol_version: 3,
-    network_magic: [0x58, 0x50, 0x51, 0x03],
-    block_version: 1,
-    transaction_version: 2,
-    block_version_activation_height: 0,
-    transaction_version_activation_height: 0,
-    genesis: MAINNET.genesis,
-};
-
-pub const DEVNET: ChainParams = ChainParams {
-    chain_name: "Paqus",
-    chain_id: 7,
-    coin_name: "dXPQ",
-    unit_name: "paqus",
-    protocol_stage: "Devnet",
-    protocol_version: 3,
-    network_magic: [0x58, 0x50, 0x51, 0x07],
-    block_version: 1,
-    transaction_version: 2,
-    block_version_activation_height: 0,
-    transaction_version_activation_height: 0,
-    genesis: MAINNET.genesis,
-};
-
-pub const CURRENT_CHAIN_PARAMS: ChainParams = MAINNET;
+pub const CURRENT_CHAIN_PARAMS: ChainParams = PAQUS_CHAIN;
 pub const CHAIN_NAME: &str = CURRENT_CHAIN_PARAMS.chain_name;
 pub const CHAIN_ID: u16 = CURRENT_CHAIN_PARAMS.chain_id;
 pub const COIN_NAME: &str = CURRENT_CHAIN_PARAMS.coin_name;

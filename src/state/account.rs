@@ -59,7 +59,8 @@ impl Account {
         }
     }
 
-    pub fn with_nonce(address: Address, balance: Balance, nonce: AccountNonce) -> Self {
+    /// Builds account state for trusted imports such as snapshots or tests.
+    pub fn trusted_with_nonce(address: Address, balance: Balance, nonce: AccountNonce) -> Self {
         Self {
             address,
             balance,
@@ -121,7 +122,7 @@ impl Account {
     }
 
     pub fn debit(&mut self, amount: Balance) -> Result<(), StateError> {
-        self.debit_at(amount, crate::types::Height(u64::MAX))
+        self.debit_at(amount, crate::types::Height(0))
     }
 
     pub fn debit_at(&mut self, amount: Balance, height: BlockHeight) -> Result<(), StateError> {

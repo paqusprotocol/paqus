@@ -52,6 +52,7 @@ impl Ledger {
     }
 
     fn expected_mintable_subsidy(&self, scheduled_subsidy: Amount) -> Result<Amount, LedgerError> {
+        // Scheduled rewards may continue after the mined supply cap; actual minting cannot.
         Ok(Amount(
             scheduled_subsidy.0.min(self.remaining_mined_supply()?),
         ))

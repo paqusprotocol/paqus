@@ -2,7 +2,7 @@ use super::{Ledger, LedgerError, validate_transaction_against_state};
 use crate::block::{Block, CoinbaseTransaction};
 use crate::consensus::block_reward;
 use crate::crypto::{address_from_public_key, generate_keypair, sign};
-use crate::state::Account;
+use crate::state::{Account, CreditSource};
 use crate::transaction::{SignedTransaction, Transaction};
 use crate::types::{Address, Amount, Hash, Height, Nonce};
 
@@ -89,6 +89,28 @@ fn tracks_total_supply_and_rejects_supply_overflow() {
     );
     assert_eq!(ledger.balance(&address(2)), None);
     assert_eq!(ledger.validate_supply(), Ok(()));
+}
+
+#[test]
+fn mintable_subsidy_is_limited_by_remaining_mined_supply() {
+    let mut ledger = Ledger::new();
+
+    ledger
+        .create_account(address(1), Amount(crate::params::MAX_UNIT_SUPPLY - 50))
+        .unwrap();
+
+    assert_eq!(ledger.mintable_subsidy(Height(1)), Ok(Amount(50)));
+}
+
+#[test]
+fn mintable_subsidy_is_zero_after_mined_supply_is_exhausted() {
+    let mut ledger = Ledger::new();
+
+    ledger
+        .create_account(address(1), Amount(crate::params::MAX_UNIT_SUPPLY))
+        .unwrap();
+
+    assert_eq!(ledger.mintable_subsidy(Height(1)), Ok(Amount(0)));
 }
 
 #[test]
@@ -234,6 +256,30 @@ fn applies_transaction_to_sender_and_receiver_accounts() {
     assert_eq!(ledger.balance(&address(1)), Some(Amount(90 - TEST_FEE)));
     assert_eq!(ledger.balance(&address(2)), Some(Amount(15)));
     assert_eq!(ledger.account(&address(1)).unwrap().nonce, Nonce(1));
+}
+
+#[test]
+fn signed_transaction_apply_does_not_bypass_locked_credits() {
+    let keypair = generate_keypair();
+    let sender = address_from_public_key(&keypair.public_key);
+    let receiver = address(2);
+    let mut ledger = Ledger::new();
+    ledger.create_account(sender, Amount(0)).unwrap();
+    ledger
+        .account_mut(&sender)
+        .unwrap()
+        .credit_locked(Amount(100), Height(10), CreditSource::MiningReward)
+        .unwrap();
+
+    let transaction =
+        signed_transaction_from(&keypair.secret_key, keypair.public_key, receiver, 10, 0);
+
+    assert_eq!(
+        ledger.apply_signed_transaction(&transaction),
+        Err(LedgerError::InsufficientBalance)
+    );
+    assert_eq!(ledger.balance(&sender), Some(Amount(100)));
+    assert_eq!(ledger.balance(&receiver), None);
 }
 
 #[test]
@@ -427,7 +473,7 @@ fn rejects_block_with_wrong_previous_hash() {
 #[test]
 fn inserts_prebuilt_account() {
     let mut ledger = Ledger::new();
-    let account = Account::with_nonce(address(1), Amount(100), Nonce(7));
+    let account = Account::trusted_with_nonce(address(1), Amount(100), Nonce(7));
 
     assert_eq!(ledger.insert_account(account), Ok(()));
     assert_eq!(ledger.account(&address(1)).unwrap().nonce, Nonce(7));
@@ -483,6 +529,32 @@ fn rejects_block_with_wrong_state_root() {
         vec![signed],
     );
     block.set_state_root(Hash([7; 64]));
+
+    assert_eq!(
+        ledger.apply_block(block),
+        Err(LedgerError::InvalidStateRoot)
+    );
+    assert_eq!(ledger.tip_height(), Some(Height(0)));
+}
+
+#[test]
+fn rejects_non_genesis_block_with_zero_state_root() {
+    let signed = signed_transaction(0, address(2), 10);
+    let sender = signed.transaction.from;
+    let mut ledger = Ledger::new();
+    ledger.create_account(sender, Amount(100)).unwrap();
+    ledger.create_account(address(2), Amount(5)).unwrap();
+    ledger.create_account(miner(), Amount(0)).unwrap();
+    ledger.apply_block(empty_genesis()).unwrap();
+
+    let block = Block::new(
+        Height(1),
+        ledger.tip_hash().unwrap(),
+        miner(),
+        1_700_000_001,
+        Nonce(0),
+        vec![signed],
+    );
 
     assert_eq!(
         ledger.apply_block(block),

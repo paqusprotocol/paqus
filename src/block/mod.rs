@@ -290,7 +290,7 @@ impl Block {
         if self
             .transactions
             .iter()
-            .any(|tx| tx.validate_for_height(self.height()).is_err())
+            .any(|tx| tx.validate_signed_for_height(self.height()).is_err())
         {
             return Err(BlockError::InvalidTransaction);
         }

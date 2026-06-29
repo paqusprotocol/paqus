@@ -24,9 +24,9 @@ pub use crate::checkpoint::{
 };
 pub use crate::codec::{
     HashDomain, block_bytes, block_header_bytes, block_header_hash, canonical_bytes,
-    canonical_decode, decode_block, decode_signed_transaction, decode_transaction, domain_hash,
-    hash_bytes, signed_transaction_bytes, signed_transaction_hash, state_root_bytes,
-    transaction_bytes, transaction_hash,
+    canonical_decode, canonical_deserialize, decode_block, decode_signed_transaction,
+    decode_transaction, domain_hash, hash_bytes, signed_transaction_bytes, signed_transaction_hash,
+    state_root_bytes, transaction_bytes, transaction_hash,
 };
 pub use crate::consensus::{
     Consensus, ConsensusConfig, ConsensusError, block_reward, tail_emission_start_height,
@@ -45,8 +45,8 @@ pub use crate::genesis::{
 pub use crate::ledger::fork_choice::{BlockNode, ForkChoice, ForkChoiceError, Work, block_work};
 pub use crate::ledger::{
     AccountStateProof, BlockExecution, Chain, Ledger, LedgerError, ProofSide, ReorgPlan,
-    StateProofNode, TransactionExecution, apply_transaction_to_state, calculate_state_root,
-    common_ancestor, create_account_state_proof, plan_reorg, validate_ledger_invariants,
+    StateProofNode, TransactionExecution, calculate_state_root, common_ancestor,
+    create_account_state_proof, plan_reorg, validate_ledger_invariants,
     validate_signed_transaction_against_state, validate_transaction_against_state,
     verify_account_state_proof,
 };

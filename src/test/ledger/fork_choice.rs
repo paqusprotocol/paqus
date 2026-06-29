@@ -34,6 +34,28 @@ fn rejects_block_when_parent_is_missing() {
 }
 
 #[test]
+fn rejects_block_with_invalid_difficulty() {
+    let mut fork_choice = ForkChoice::new();
+
+    assert_eq!(
+        fork_choice.insert_block(block(0, Hash([0; 64]), 0, 0)),
+        Err(ForkChoiceError::InvalidDifficulty)
+    );
+    assert!(fork_choice.is_empty());
+
+    assert_eq!(
+        fork_choice.insert_block(block(
+            0,
+            Hash([0; 64]),
+            crate::params::MAX_DIFFICULTY + 1,
+            1,
+        )),
+        Err(ForkChoiceError::InvalidDifficulty)
+    );
+    assert!(fork_choice.is_empty());
+}
+
+#[test]
 fn chooses_tip_with_highest_cumulative_work() {
     let mut fork_choice = ForkChoice::new();
     let genesis = block(0, Hash([0; 64]), 1, 0);

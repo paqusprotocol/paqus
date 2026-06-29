@@ -1,22 +1,24 @@
 use crate::block::{Block, BlockError};
+use crate::crypto::{address_from_public_key, generate_keypair, sign};
 use crate::params::MAX_FUTURE_TIME;
 use crate::transaction::{SignedTransaction, Transaction};
-use crate::types::{Address, Amount, Hash, Height, Nonce, PublicKey, Signature};
+use crate::types::{Address, Amount, Hash, Height, Nonce};
 
 const TEST_FEE: u32 = 2;
 
 fn signed_transaction(nonce: u64) -> SignedTransaction {
-    SignedTransaction::new(
-        Transaction::new(
-            Address([1; 20]),
-            Address([2; 20]),
-            Amount(10),
-            Amount(TEST_FEE),
-            Nonce(nonce),
-        ),
-        PublicKey([1; 2592]),
-        Signature([1; 4627]),
-    )
+    let keypair = generate_keypair();
+    let from = address_from_public_key(&keypair.public_key);
+    let transaction = Transaction::new(
+        from,
+        Address([2; 20]),
+        Amount(10),
+        Amount(TEST_FEE),
+        Nonce(nonce),
+    );
+    let signature = sign(&keypair.secret_key, &transaction.signing_bytes());
+
+    SignedTransaction::new(transaction, keypair.public_key, signature)
 }
 
 fn miner() -> Address {
@@ -99,6 +101,22 @@ fn rejects_tampered_merkle_root() {
 }
 
 #[test]
+fn rejects_transaction_with_invalid_signature() {
+    let mut transaction = signed_transaction(1);
+    transaction.witness.signature.0[0] ^= 0xff;
+    let block = Block::new(
+        Height(1),
+        Hash([0; 64]),
+        miner(),
+        1_700_000_000,
+        Nonce(42),
+        vec![transaction],
+    );
+
+    assert_eq!(block.validate(), Err(BlockError::InvalidTransaction));
+}
+
+#[test]
 fn refreshes_merkle_root_after_push() {
     let mut block = Block::new(
         Height(1),
@@ -152,16 +170,19 @@ fn reports_miner_revenue_from_subsidy_and_fees() {
 
 #[test]
 fn rejects_fee_overflow() {
+    let keypair = generate_keypair();
+    let from = address_from_public_key(&keypair.public_key);
+    let transaction = Transaction::new(
+        from,
+        Address([2; 20]),
+        Amount(10),
+        Amount(u32::MAX),
+        Nonce(0),
+    );
     let tx = SignedTransaction::new(
-        Transaction::new(
-            Address([1; 20]),
-            Address([2; 20]),
-            Amount(10),
-            Amount(u32::MAX),
-            Nonce(0),
-        ),
-        PublicKey([1; 2592]),
-        Signature([1; 4627]),
+        transaction.clone(),
+        keypair.public_key,
+        sign(&keypair.secret_key, &transaction.signing_bytes()),
     );
     let block = Block::new(
         Height(1),

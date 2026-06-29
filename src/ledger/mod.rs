@@ -19,6 +19,6 @@ pub use state_proof::{
     verify_account_state_proof,
 };
 pub use transition::{
-    BlockExecution, TransactionExecution, apply_transaction_to_state,
-    validate_signed_transaction_against_state, validate_transaction_against_state,
+    BlockExecution, TransactionExecution, validate_signed_transaction_against_state,
+    validate_transaction_against_state,
 };

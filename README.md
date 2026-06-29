@@ -10,8 +10,9 @@ policy, mining loops, wallet UX, and runtime services live outside this crate.
 
 ## Status
 
-The core API and consensus parameters are experimental and may change before a
-stable protocol release.
+The 0.2.x line freezes the current core consensus parameter set unless a future
+protocol upgrade explicitly introduces an activation height. Runtime policy,
+networking, storage, and wallet behavior remain outside this crate.
 
 ## Disclaimer
 
@@ -45,16 +46,25 @@ use a similar name, mark, or terminology.
 
 ```text
 CHAIN_NAME = Paqus
+CHAIN_ID = 747
 COIN_NAME = XPQ
 UNIT_NAME = paqus
 PROTOCOL_STAGE = Mainnet
 PROTOCOL_VERSION = 3
+NETWORK_MAGIC = 58505101
 BLOCK_TIME = 5 minutes
+BLOCKS_PER_DAY = 288
+DIFFICULTY_ADJUSTMENT_INTERVAL = 2016 blocks
 CONFIRMATION_DEPTH = 10 blocks
 BLOCK_REWARD_MATURITY = 120 blocks
 FINALITY_DEPTH = 100 blocks
 BLOCK_REWARD = 5_000 paqus
 TAIL_EMISSION = 100 paqus
+TAIL_EMISSION_START_HEIGHT = 420_480
+SNAPSHOT_INTERVAL = 50_000 blocks
+CHECKPOINT_INTERVAL = 50_000 blocks
+ARGON2_POW_MEMORY = 512 MiB
+ARGON2_POW_PARALLELISM = 2 lanes
 ```
 
 Transaction outputs and miner fees become spendable at:
@@ -100,6 +110,15 @@ Decode helpers validate decoded objects before returning them:
 - `decode_transaction`
 - `decode_signed_transaction`
 - `decode_block`
+
+`canonical_deserialize` and its compatibility alias `canonical_decode` only
+deserialize bytes. They do not imply domain or consensus validity.
+
+`decode_signed_transaction` verifies the sender address and signature.
+`decode_block` validates block-local rules such as transaction signatures,
+merkle root, size, and timestamp bounds. It does not validate proof of work,
+parent linkage, ledger state root, fork choice, or coinbase subsidy against a
+ledger.
 
 ## Hash Domains
 
@@ -151,7 +170,7 @@ A block is valid when:
 - transaction count and serialized size are within limits;
 - transaction fees and coinbase totals do not overflow `u32`;
 - timestamp is not too far in the future;
-- transaction formats are valid;
+- transaction signatures and sender addresses are valid;
 - merkle root matches block contents;
 - proof-of-work satisfies the expected difficulty.
 
@@ -179,6 +198,9 @@ leaf hashes and state parent hashes use separate hash domains.
 State transition is atomic: if block application fails, ledger state and chain
 tip must not change.
 
+Non-genesis blocks must carry the canonical state root produced by their ledger
+transition. Placeholder zero state roots are rejected by core ledger validation.
+
 Fork choice selects the valid tip with the highest cumulative work. Ties are
 resolved by the lowest block hash. Reorg planning is exposed through:
 
@@ -187,6 +209,11 @@ resolved by the lowest block hash. Reorg planning is exposed through:
 
 Runtime code is responsible for storing competing branches and applying reorg
 plans to rebuild active state.
+
+The core chain identity is intentionally singular. Test and development
+environments should use runtime options such as local storage, temporary peers,
+or test difficulty controls rather than alternative core consensus parameter
+profiles.
 
 ## Genesis
 
@@ -231,6 +258,20 @@ let _genesis_like = Block::new(
 ```
 
 ## Changelog
+
+### 0.2.0 - Mainnet
+
+- Tightened block decoding and validation so signed transactions inside blocks must verify their sender address and signature.
+- Clarified canonical deserialization semantics and added `canonical_deserialize`.
+- Required non-genesis blocks to carry the canonical state root in core ledger validation.
+- Clamped candidate and ledger coinbase subsidy through `mintable_subsidy`, including zero subsidy after mined supply is exhausted.
+- Restricted raw unsigned transaction application helpers to crate/test internals.
+- Prevented standalone signed transaction application from bypassing locked credit maturity.
+- Added explicit trusted account-state import naming with `Account::trusted_with_nonce`.
+- Added difficulty-range checks to fork choice insertion.
+- Simplified chain parameters to one Paqus protocol identity instead of separate mainnet/testnet/devnet profiles.
+- Matched checkpoint cadence to snapshot cadence at 50,000 blocks.
+- Set Argon2 proof-of-work parameters to 512 MiB memory, time cost 1, parallelism 2, output 32 bytes.
 
 ### 0.1.9 - Mainnet
 

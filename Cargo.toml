@@ -1,8 +1,8 @@
 [package]
 name = "paqus"
-version = "0.1.9"
+version = "0.2.0"
 edition = "2024"
-description = "Testnet v0.1.0"
+description = "Core consensus primitives for the Paqus proof-of-work blockchain"
 readme = "README.md"
 repository = "https://github.com/paqusprotocol/paqus"
 license = "MIT"

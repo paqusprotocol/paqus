@@ -137,6 +137,24 @@ fn rejects_debit_when_credit_is_not_mature() {
 }
 
 #[test]
+fn default_debit_does_not_bypass_locked_credits() {
+    let mut account = Account::new(address(1), Amount(0));
+    account
+        .credit_locked(
+            Amount(100),
+            crate::types::Height(10),
+            crate::state::CreditSource::MiningReward,
+        )
+        .unwrap();
+
+    assert_eq!(
+        account.debit(Amount(1)),
+        Err(StateError::InsufficientBalance)
+    );
+    assert_eq!(account.balance, Amount(100));
+}
+
+#[test]
 fn compacts_credits_with_same_unlock_policy() {
     let mut account = Account::new(address(1), Amount(0));
     account

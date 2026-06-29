@@ -1,5 +1,5 @@
 use crate::block::Block;
-use crate::params::HASH_SIZE;
+use crate::params::{HASH_SIZE, MAX_DIFFICULTY, MIN_DIFFICULTY};
 use crate::types::{BlockHash, BlockHeight, Hash, Height};
 use std::collections::BTreeMap;
 use std::ops::Add;
@@ -70,6 +70,10 @@ impl ForkChoice {
         let hash = block.hash();
         if self.nodes.contains_key(&hash) {
             return Err(ForkChoiceError::DuplicateBlock);
+        }
+
+        if !(MIN_DIFFICULTY..=MAX_DIFFICULTY).contains(&block.difficulty()) {
+            return Err(ForkChoiceError::InvalidDifficulty);
         }
 
         let parent = BlockHash(block.previous_hash().0);
@@ -177,6 +181,7 @@ impl ForkChoice {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ForkChoiceError {
     DuplicateBlock,
+    InvalidDifficulty,
     InvalidHeight,
     MissingParent,
 }
