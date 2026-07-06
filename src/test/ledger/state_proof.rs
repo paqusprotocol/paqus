@@ -1,6 +1,9 @@
-use super::{calculate_state_root, create_account_state_proof, verify_account_state_proof};
+use super::{
+    SparseStateTree, calculate_state_root, create_account_state_proof, verify_account_state_proof,
+};
+use crate::consensus::supply::Amount;
+use crate::crypto::Address;
 use crate::state::Account;
-use crate::types::{Address, Amount};
 use std::collections::BTreeMap;
 
 fn address(byte: u8) -> Address {
@@ -17,6 +20,26 @@ fn verifies_account_state_proof_against_state_root() {
     let proof = create_account_state_proof(&accounts, &address(2)).unwrap();
 
     assert!(verify_account_state_proof(root, &proof));
+}
+
+#[test]
+fn sparse_state_tree_incremental_updates_match_full_root() {
+    let mut accounts = BTreeMap::new();
+    let mut tree = SparseStateTree::new();
+
+    for byte in [3, 1, 2] {
+        let account = Account::new(address(byte), Amount(byte as u64 * 10));
+        tree.update_account(&account);
+        accounts.insert(account.address, account);
+
+        assert_eq!(tree.root(), calculate_state_root(&accounts));
+    }
+
+    let updated = Account::trusted_with_nonce(address(2), Amount(99), crate::block::Nonce(7));
+    tree.update_account(&updated);
+    accounts.insert(updated.address, updated);
+
+    assert_eq!(tree.root(), calculate_state_root(&accounts));
 }
 
 #[test]

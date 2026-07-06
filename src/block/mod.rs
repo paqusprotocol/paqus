@@ -1,14 +1,51 @@
 use crate::codec::{HashDomain, block_bytes, block_header_hash, canonical_bytes, domain_hash};
-use crate::consensus::block_reward;
+use crate::consensus::supply::Amount;
+use crate::consensus::{DIFFICULTY_START, MAX_FUTURE_TIME, block_reward};
+use crate::crypto::Address;
+use crate::crypto::{BlockHash, HASH_SIZE, Hash, MerkleHash, PreviousHash, StateRoot};
 pub use crate::error::BlockError;
-use crate::params::{DIFFICULTY_START, HASH_SIZE, MAX_BLOCK_SIZE, MAX_BLOCK_TXS, MAX_FUTURE_TIME};
 use crate::transaction::SignedTransaction;
-use crate::types::{
-    Address, Amount, BlockHash, BlockHeight, BlockNonce, Hash, Height, MerkleHash, Nonce,
-    PreviousHash, StateRoot,
-};
-use crate::version::{active_versions, supported_block_version};
 use borsh::{BorshDeserialize, BorshSerialize};
+use serde::{Deserialize, Serialize};
+use std::thread;
+
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Serialize,
+    Deserialize,
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+)]
+pub struct Height(pub u64);
+
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Serialize,
+    Deserialize,
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+)]
+pub struct Nonce(pub u64);
+
+pub type BlockHeight = Height;
+pub type BlockNonce = Nonce;
+
+pub const MAX_BLOCK_SIZE: usize = 3 * 1024 * 1024;
+pub const MAX_BLOCK_TXS: usize = 350;
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct BlockHeader {
@@ -36,7 +73,7 @@ impl BlockHeader {
         nonce: BlockNonce,
     ) -> Self {
         Self {
-            version: active_versions(height).block,
+            version: 1,
             height,
             previous_hash,
             merkle_root,
@@ -149,10 +186,10 @@ impl Block {
             let fees = Amount(
                 transactions
                     .iter()
-                    .try_fold(0_u32, |total, transaction| {
+                    .try_fold(0_u64, |total, transaction| {
                         total.checked_add(transaction.transaction.fee.0)
                     })
-                    .unwrap_or(u32::MAX),
+                    .unwrap_or(u64::MAX),
             );
             Some(CoinbaseTransaction::new(
                 miner_address,
@@ -253,7 +290,7 @@ impl Block {
     }
 
     pub fn validate_at(&self, now: u64) -> Result<(), BlockError> {
-        if !supported_block_version(self.height(), self.header.version) {
+        if self.header.version != 1 {
             return Err(BlockError::UnsupportedVersion);
         }
 
@@ -287,11 +324,7 @@ impl Block {
             return Err(BlockError::FutureTimestamp);
         }
 
-        if self
-            .transactions
-            .iter()
-            .any(|tx| tx.validate_signed_for_height(self.height()).is_err())
-        {
+        if !signed_transactions_are_valid_for_height(&self.transactions, self.height()) {
             return Err(BlockError::InvalidTransaction);
         }
 
@@ -355,14 +388,14 @@ impl Block {
     }
 
     pub fn total_fees(&self) -> Amount {
-        self.checked_total_fees().unwrap_or(Amount(u32::MAX))
+        self.checked_total_fees().unwrap_or(Amount(u64::MAX))
     }
 
     pub fn checked_total_fees(&self) -> Result<Amount, BlockError> {
         let fees = self
             .transactions
             .iter()
-            .try_fold(0_u32, |total, transaction| {
+            .try_fold(0_u64, |total, transaction| {
                 total.checked_add(transaction.transaction.fee.0)
             })
             .ok_or(BlockError::FeeOverflow)?;
@@ -448,4 +481,41 @@ fn calculate_merkle_root(
     }
 
     MerkleHash(hashes[0].0)
+}
+
+fn signed_transactions_are_valid_for_height(
+    transactions: &[SignedTransaction],
+    height: BlockHeight,
+) -> bool {
+    if transactions.len() < 2 {
+        return transactions
+            .iter()
+            .all(|tx| tx.validate_signed_for_height(height).is_ok());
+    }
+
+    let workers = thread::available_parallelism()
+        .map(|parallelism| parallelism.get())
+        .unwrap_or(1)
+        .min(transactions.len());
+    if workers <= 1 {
+        return transactions
+            .iter()
+            .all(|tx| tx.validate_signed_for_height(height).is_ok());
+    }
+
+    let chunk_size = transactions.len().div_ceil(workers);
+    thread::scope(|scope| {
+        let mut handles = Vec::new();
+        for chunk in transactions.chunks(chunk_size) {
+            handles.push(scope.spawn(move || {
+                chunk
+                    .iter()
+                    .all(|tx| tx.validate_signed_for_height(height).is_ok())
+            }));
+        }
+
+        handles
+            .into_iter()
+            .all(|handle| handle.join().unwrap_or(false))
+    })
 }

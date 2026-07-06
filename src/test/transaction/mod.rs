@@ -1,8 +1,10 @@
+use crate::block::Nonce;
+use crate::consensus::supply::Amount;
+use crate::crypto::{Address, PublicKey, Signature};
 use crate::crypto::{address_from_public_key, generate_keypair, sign};
 use crate::transaction::{SignedTransaction, Transaction, TransactionError};
-use crate::types::{Address, Amount, Nonce, PublicKey, Signature};
 
-const TEST_FEE: u32 = 2;
+const TEST_FEE: u64 = 2;
 
 fn address(byte: u8) -> Address {
     Address([byte; 20])
@@ -18,7 +20,7 @@ fn transaction() -> Transaction {
     )
 }
 
-fn signed_payload(from: Address, to: Address, amount: u32, nonce: u64) -> Transaction {
+fn signed_payload(from: Address, to: Address, amount: u64, nonce: u64) -> Transaction {
     Transaction::new(from, to, Amount(amount), Amount(TEST_FEE), Nonce(nonce))
 }
 
@@ -27,7 +29,7 @@ fn validates_basic_transaction_rules() {
     assert_eq!(transaction().validate(), Ok(()));
 
     let mut unsupported_version = transaction();
-    unsupported_version.version = crate::params::TRANSACTION_VERSION + 1;
+    unsupported_version.version += 1;
     assert_eq!(
         unsupported_version.validate(),
         Err(TransactionError::UnsupportedVersion)
@@ -82,7 +84,7 @@ fn treats_transaction_timestamp_as_signed_metadata() {
         Amount(10),
         Amount(TEST_FEE),
         Nonce(7),
-        now + 2 * crate::params::BLOCK_TIME as u64,
+        now + 2 * crate::consensus::BLOCK_TIME as u64,
     );
     assert_eq!(future.validate_at(now), Ok(()));
 }
@@ -125,7 +127,7 @@ fn signed_transaction_requires_signature_material() {
 
     assert_eq!(signed.validate(), Ok(()));
     assert_eq!(signed.transaction_hash(), signed.transaction.hash());
-    assert!(signed.serialized_size() <= crate::params::MAX_TX_SIZE);
+    assert!(signed.serialized_size() <= crate::transaction::MAX_TX_SIZE);
 
     let without_key = SignedTransaction::new(
         signed_payload(address(1), address(2), 10, 7),

@@ -1,7 +1,10 @@
 use super::{Chain, LedgerError};
 use crate::block::Block;
+use crate::block::{Height, Nonce};
+use crate::consensus::supply::Amount;
+use crate::crypto::{Address, PublicKey, Signature};
+use crate::crypto::{Hash, PreviousHash};
 use crate::transaction::{SignedTransaction, Transaction};
-use crate::types::{Address, Amount, Hash, Height, Nonce, PreviousHash, PublicKey, Signature};
 
 fn signed_transaction(nonce: u64) -> SignedTransaction {
     SignedTransaction::new(

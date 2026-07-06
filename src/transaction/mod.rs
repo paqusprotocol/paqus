@@ -1,12 +1,18 @@
+use crate::block::{Height, Nonce};
 use crate::codec::{
     signed_transaction_bytes, signed_transaction_hash, transaction_bytes, transaction_hash,
 };
+use crate::consensus::supply::Amount;
+use crate::crypto::TransactionHash;
+use crate::crypto::{Address, PublicKey, Signature};
 use crate::crypto::{address_from_public_key, verify};
 pub use crate::error::TransactionError;
-use crate::params::MAX_TX_SIZE;
-use crate::types::{AccountNonce, Address, Amount, PublicKey, Signature, TransactionHash};
-use crate::version::{active_versions, supported_transaction_version};
 use borsh::{BorshDeserialize, BorshSerialize};
+
+pub const MAX_TX_SIZE: usize = 10 * 1024;
+
+pub type AccountNonce = Nonce;
+pub type TransactionHeight = Height;
 
 const TRANSACTION_SIGNATURE_DOMAIN: &[u8] = b"PAQUSCORE_TX_V1";
 
@@ -41,7 +47,7 @@ impl Transaction {
         timestamp: u64,
     ) -> Self {
         Self {
-            version: active_versions(crate::types::Height(0)).transaction,
+            version: 2,
             from,
             to,
             amount,
@@ -52,14 +58,14 @@ impl Transaction {
     }
 
     pub fn validate(&self) -> Result<(), TransactionError> {
-        self.validate_for_height(crate::types::Height(0))
+        self.validate_for_height(crate::block::Height(0))
     }
 
     pub fn validate_for_height(
         &self,
-        height: crate::types::BlockHeight,
+        _height: crate::block::BlockHeight,
     ) -> Result<(), TransactionError> {
-        if !supported_transaction_version(height, self.version) {
+        if self.version != 2 {
             return Err(TransactionError::UnsupportedVersion);
         }
 
@@ -75,13 +81,13 @@ impl Transaction {
     }
 
     pub fn validate_at(&self, _now: u64) -> Result<(), TransactionError> {
-        self.validate_at_height(_now, crate::types::Height(0))
+        self.validate_at_height(_now, crate::block::Height(0))
     }
 
     pub fn validate_at_height(
         &self,
         _now: u64,
-        height: crate::types::BlockHeight,
+        height: crate::block::BlockHeight,
     ) -> Result<(), TransactionError> {
         self.validate_for_height(height)
     }
@@ -134,12 +140,12 @@ impl SignedTransaction {
     }
 
     pub fn validate(&self) -> Result<(), TransactionError> {
-        self.validate_for_height(crate::types::Height(0))
+        self.validate_for_height(crate::block::Height(0))
     }
 
     pub fn validate_for_height(
         &self,
-        height: crate::types::BlockHeight,
+        height: crate::block::BlockHeight,
     ) -> Result<(), TransactionError> {
         self.transaction.validate_for_height(height)?;
 
@@ -160,13 +166,13 @@ impl SignedTransaction {
     }
 
     pub fn validate_at(&self, now: u64) -> Result<(), TransactionError> {
-        self.validate_at_height(now, crate::types::Height(0))
+        self.validate_at_height(now, crate::block::Height(0))
     }
 
     pub fn validate_at_height(
         &self,
         now: u64,
-        height: crate::types::BlockHeight,
+        height: crate::block::BlockHeight,
     ) -> Result<(), TransactionError> {
         self.transaction.validate_at_height(now, height)?;
 
@@ -205,12 +211,12 @@ impl SignedTransaction {
     }
 
     pub fn validate_signed(&self) -> Result<(), TransactionError> {
-        self.validate_signed_for_height(crate::types::Height(0))
+        self.validate_signed_for_height(crate::block::Height(0))
     }
 
     pub fn validate_signed_for_height(
         &self,
-        height: crate::types::BlockHeight,
+        height: crate::block::BlockHeight,
     ) -> Result<(), TransactionError> {
         self.validate_for_height(height)?;
 
@@ -222,13 +228,13 @@ impl SignedTransaction {
     }
 
     pub fn validate_signed_at(&self, now: u64) -> Result<(), TransactionError> {
-        self.validate_signed_at_height(now, crate::types::Height(0))
+        self.validate_signed_at_height(now, crate::block::Height(0))
     }
 
     pub fn validate_signed_at_height(
         &self,
         now: u64,
-        height: crate::types::BlockHeight,
+        height: crate::block::BlockHeight,
     ) -> Result<(), TransactionError> {
         self.validate_at_height(now, height)?;
 

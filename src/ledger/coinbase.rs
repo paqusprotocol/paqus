@@ -1,9 +1,11 @@
 use crate::block::Block;
+use crate::block::BlockHeight;
 use crate::consensus::block_reward;
-use crate::ledger::{Ledger, LedgerError};
-use crate::params::{BLOCK_REWARD_MATURITY, CONFIRMATION_DEPTH, GENESIS_PREMINE, MAX_MINED_SUPPLY};
+use crate::consensus::supply::Amount;
+use crate::consensus::supply::MAX_MINED_SUPPLY;
+use crate::crypto::Address;
+use crate::ledger::{BLOCK_REWARD_MATURITY, CONFIRMATION_DEPTH, Ledger, LedgerError};
 use crate::state::{Account, CreditSource};
-use crate::types::{Address, Amount, BlockHeight};
 
 impl Ledger {
     pub(crate) fn apply_coinbase(&mut self, block: &Block) -> Result<(), LedgerError> {
@@ -31,7 +33,7 @@ impl Ledger {
         height: BlockHeight,
     ) -> Result<(), LedgerError> {
         let spendable_height =
-            crate::types::Height(height.0.saturating_add(CONFIRMATION_DEPTH as u64));
+            crate::block::Height(height.0.saturating_add(CONFIRMATION_DEPTH as u64));
         self.credit_miner(miner_address, fees, spendable_height, CreditSource::Fee)
     }
 
@@ -42,7 +44,7 @@ impl Ledger {
         height: BlockHeight,
     ) -> Result<(), LedgerError> {
         let spendable_height =
-            crate::types::Height(height.0.saturating_add(BLOCK_REWARD_MATURITY as u64));
+            crate::block::Height(height.0.saturating_add(BLOCK_REWARD_MATURITY as u64));
         self.credit_miner(
             miner_address,
             subsidy,
@@ -62,10 +64,9 @@ impl Ledger {
         self.expected_mintable_subsidy(block_reward(height))
     }
 
-    pub fn remaining_mined_supply(&self) -> Result<u32, LedgerError> {
+    pub fn remaining_mined_supply(&self) -> Result<u64, LedgerError> {
         let total = self.total_supply()?.0;
-        let mined_supply = total.saturating_sub(GENESIS_PREMINE);
-        Ok(MAX_MINED_SUPPLY.saturating_sub(mined_supply))
+        Ok(MAX_MINED_SUPPLY.saturating_sub(total))
     }
 
     fn credit_miner(

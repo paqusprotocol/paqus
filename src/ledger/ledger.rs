@@ -1,11 +1,14 @@
 use crate::block::Block;
+use crate::block::BlockHeight;
+use crate::consensus::supply::MAX_UNIT_SUPPLY;
+use crate::consensus::supply::{Amount, Balance};
+use crate::crypto::Address;
+use crate::crypto::{BlockHash, HASH_SIZE, Hash, StateRoot};
 use crate::error::LedgerError;
 use crate::ledger::chain::Chain;
 use crate::ledger::{AccountStateProof, calculate_state_root, create_account_state_proof};
-use crate::params::HASH_SIZE;
 use crate::state::Account;
 use crate::transaction::SignedTransaction;
-use crate::types::{Address, Amount, Balance, BlockHash, BlockHeight};
 use std::collections::BTreeMap;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -66,7 +69,7 @@ impl Ledger {
     }
 
     pub fn total_supply(&self) -> Result<Amount, LedgerError> {
-        let mut total = 0_u32;
+        let mut total = 0_u64;
         for account in self.accounts.values() {
             total = total
                 .checked_add(account.balance.0)
@@ -76,7 +79,10 @@ impl Ledger {
     }
 
     pub fn validate_supply(&self) -> Result<(), LedgerError> {
-        self.total_supply().map(|_| ())
+        if self.total_supply()?.0 > MAX_UNIT_SUPPLY {
+            return Err(LedgerError::SupplyOverflow);
+        }
+        Ok(())
     }
 
     pub fn apply_signed_transaction(
@@ -86,7 +92,7 @@ impl Ledger {
         signed_transaction
             .validate_signed()
             .map_err(LedgerError::from)?;
-        self.apply_transaction_at(&signed_transaction.transaction, crate::types::Height(0))
+        self.apply_transaction_at(&signed_transaction.transaction, crate::block::Height(0))
     }
 
     #[cfg(test)]
@@ -94,26 +100,22 @@ impl Ledger {
         &mut self,
         transaction: &crate::transaction::Transaction,
     ) -> Result<(), LedgerError> {
-        self.apply_transaction_at(transaction, crate::types::Height(0))
+        self.apply_transaction_at(transaction, crate::block::Height(0))
     }
 
     pub fn apply_block(&mut self, mut block: Block) -> Result<(), LedgerError> {
-        let expected_state_root = self.validate_block(&block)?;
-        if block.state_root() == crate::types::Hash([0; HASH_SIZE]) {
+        let (mut staged, expected_state_root) = self.staged_after_validated_block(&block)?;
+        if block.state_root() == Hash([0; HASH_SIZE]) {
             block.set_state_root(expected_state_root);
         }
 
-        let mut staged = self.staged_after_block(&block)?;
         staged.chain.insert_block(block)?;
         *self = staged;
 
         Ok(())
     }
 
-    pub fn state_root_after_block(
-        &self,
-        block: &Block,
-    ) -> Result<crate::types::StateRoot, LedgerError> {
+    pub fn state_root_after_block(&self, block: &Block) -> Result<StateRoot, LedgerError> {
         Ok(self.staged_after_block(block)?.state_root())
     }
 
@@ -133,7 +135,7 @@ impl Ledger {
         self.chain.tip_hash()
     }
 
-    pub fn state_root(&self) -> crate::types::StateRoot {
+    pub fn state_root(&self) -> StateRoot {
         calculate_state_root(&self.accounts)
     }
 

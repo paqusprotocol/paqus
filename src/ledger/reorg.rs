@@ -1,9 +1,9 @@
 use crate::block::Block;
+use crate::crypto::BlockHash;
 use crate::error::LedgerError;
+use crate::ledger::FINALITY_DEPTH;
 use crate::ledger::Ledger;
 use crate::ledger::fork_choice::ForkChoice;
-use crate::params::FINALITY_DEPTH;
-use crate::types::BlockHash;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ReorgPlan {

@@ -2,7 +2,7 @@ use super::{
     CryptoError, address_from_public_key, address_from_string, address_to_string, generate_keypair,
     try_address_from_public_key, wallet_address_from_public_key,
 };
-use crate::types::{Address, PublicKey};
+use crate::crypto::{Address, PublicKey};
 
 #[test]
 fn derives_address_without_prefix_from_public_key() {
@@ -32,12 +32,14 @@ fn rejects_empty_public_key() {
 }
 
 #[test]
-fn formats_wallet_address_as_plain_hex() {
+fn formats_wallet_address_as_uppercase_bech32() {
     let address = Address([0xab; 20]);
     let wallet_address = address_to_string(&address);
 
-    assert_eq!(wallet_address.len(), 40);
-    assert_eq!(wallet_address, "abababababababababababababababababababab");
+    assert_eq!(wallet_address.len(), 41);
+    assert!(wallet_address.starts_with("PX1"));
+    assert_eq!(wallet_address, wallet_address.to_ascii_uppercase());
+    assert_eq!(wallet_address, "PX14W46H2AT4W46H2AT4W46H2AT4W46H2ATALMC6F");
 }
 
 #[test]
@@ -55,7 +57,15 @@ fn rejects_invalid_wallet_address_string() {
         Err(CryptoError::InvalidAddressEncoding)
     );
     assert_eq!(
-        address_from_string("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"),
+        address_from_string("px14w46h2at4w46h2at4w46h2at4w46h2atalmc6f"),
+        Err(CryptoError::InvalidAddressEncoding)
+    );
+    assert_eq!(
+        address_from_string("PQ14W46H2AT4W46H2AT4W46H2AT4W46H2ATALMC6F"),
+        Err(CryptoError::InvalidAddressEncoding)
+    );
+    assert_eq!(
+        address_from_string("PX14W46H2AT4W46H2AT4W46H2AT4W46H2ATALMC6Q"),
         Err(CryptoError::InvalidAddressEncoding)
     );
 }
@@ -66,6 +76,7 @@ fn generated_keypair_can_produce_wallet_address_string() {
     let wallet_address = wallet_address_from_public_key(&keypair.public_key);
     let parsed = address_from_string(&wallet_address).expect("wallet address should parse");
 
-    assert_eq!(wallet_address.len(), 40);
+    assert_eq!(wallet_address.len(), 41);
+    assert!(wallet_address.starts_with("PX1"));
     assert_eq!(parsed, address_from_public_key(&keypair.public_key));
 }

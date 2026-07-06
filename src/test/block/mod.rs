@@ -1,10 +1,13 @@
 use crate::block::{Block, BlockError};
+use crate::block::{Height, Nonce};
+use crate::consensus::MAX_FUTURE_TIME;
+use crate::consensus::supply::Amount;
+use crate::crypto::Address;
+use crate::crypto::Hash;
 use crate::crypto::{address_from_public_key, generate_keypair, sign};
-use crate::params::MAX_FUTURE_TIME;
 use crate::transaction::{SignedTransaction, Transaction};
-use crate::types::{Address, Amount, Hash, Height, Nonce};
 
-const TEST_FEE: u32 = 2;
+const TEST_FEE: u64 = 2;
 
 fn signed_transaction(nonce: u64) -> SignedTransaction {
     let keypair = generate_keypair();
@@ -50,7 +53,7 @@ fn rejects_unsupported_block_version() {
         Nonce(42),
         vec![signed_transaction(1)],
     );
-    block.header.version = crate::params::BLOCK_VERSION + 1;
+    block.header.version += 1;
 
     assert_eq!(block.validate(), Err(BlockError::UnsupportedVersion));
 }
@@ -176,7 +179,7 @@ fn rejects_fee_overflow() {
         from,
         Address([2; 20]),
         Amount(10),
-        Amount(u32::MAX),
+        Amount(u64::MAX),
         Nonce(0),
     );
     let tx = SignedTransaction::new(

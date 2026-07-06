@@ -12,7 +12,7 @@ pub fn validate_ledger_invariants(ledger: &Ledger) -> Result<(), LedgerError> {
         let credit_total = account
             .credits
             .iter()
-            .try_fold(0_u32, |total, credit| total.checked_add(credit.amount.0))
+            .try_fold(0_u64, |total, credit| total.checked_add(credit.amount.0))
             .ok_or(LedgerError::SupplyOverflow)?;
         if credit_total != account.balance.0 {
             return Err(LedgerError::InvalidState(StateError::BalanceOverflow));

@@ -1,7 +1,7 @@
 use crate::block::Block;
+use crate::block::{BlockHeight, Height};
+use crate::crypto::{BlockHash, HASH_SIZE, Hash};
 use crate::error::LedgerError;
-use crate::params::HASH_SIZE;
-use crate::types::{BlockHash, BlockHeight, Hash, Height};
 use std::collections::BTreeMap;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

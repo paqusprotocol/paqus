@@ -1,8 +1,10 @@
+use crate::block::Nonce;
+use crate::consensus::supply::Amount;
+use crate::crypto::Address;
 use crate::state::{Account, StateError};
 use crate::transaction::Transaction;
-use crate::types::{Address, Amount, Nonce};
 
-const TEST_FEE: u32 = 2;
+const TEST_FEE: u64 = 2;
 
 fn address(byte: u8) -> Address {
     Address([byte; 20])
@@ -53,7 +55,7 @@ fn applies_outgoing_transaction_amount_fee_and_nonce() {
     let mut account = Account::new(address(1), Amount(100));
 
     assert_eq!(
-        account.apply_outgoing_transaction(&transaction(0), crate::types::Height(0)),
+        account.apply_outgoing_transaction(&transaction(0), crate::block::Height(0)),
         Ok(())
     );
     assert_eq!(account.balance, Amount(88));
@@ -65,7 +67,7 @@ fn rejects_outgoing_transaction_with_wrong_nonce() {
     let mut account = Account::new(address(1), Amount(100));
 
     assert_eq!(
-        account.apply_outgoing_transaction(&transaction(1), crate::types::Height(0)),
+        account.apply_outgoing_transaction(&transaction(1), crate::block::Height(0)),
         Err(StateError::InvalidNonce)
     );
 }
@@ -75,7 +77,7 @@ fn rejects_outgoing_transaction_from_different_address() {
     let mut account = Account::new(address(9), Amount(100));
 
     assert_eq!(
-        account.apply_outgoing_transaction(&transaction(0), crate::types::Height(0)),
+        account.apply_outgoing_transaction(&transaction(0), crate::block::Height(0)),
         Err(StateError::AddressMismatch)
     );
 }
@@ -85,20 +87,20 @@ fn applies_incoming_transaction_amount_only() {
     let mut account = Account::new(address(2), Amount(5));
 
     assert_eq!(
-        account.apply_incoming_transaction(&transaction(0), crate::types::Height(10)),
+        account.apply_incoming_transaction(&transaction(0), crate::block::Height(10)),
         Ok(())
     );
     assert_eq!(account.balance, Amount(15));
     assert_eq!(
-        account.available_balance_at(crate::types::Height(0)),
+        account.available_balance_at(crate::block::Height(0)),
         Amount(5)
     );
     assert_eq!(
-        account.unspendable_balance_at(crate::types::Height(0)),
+        account.unspendable_balance_at(crate::block::Height(0)),
         Amount(10)
     );
     assert_eq!(
-        account.available_balance_at(crate::types::Height(10)),
+        account.available_balance_at(crate::block::Height(10)),
         Amount(15)
     );
     assert_eq!(account.nonce, Nonce(0));
@@ -109,7 +111,7 @@ fn rejects_incoming_transaction_to_different_address() {
     let mut account = Account::new(address(9), Amount(5));
 
     assert_eq!(
-        account.apply_incoming_transaction(&transaction(0), crate::types::Height(10)),
+        account.apply_incoming_transaction(&transaction(0), crate::block::Height(10)),
         Err(StateError::AddressMismatch)
     );
 }
@@ -120,17 +122,17 @@ fn rejects_debit_when_credit_is_not_mature() {
     account
         .credit_locked(
             Amount(100),
-            crate::types::Height(10),
+            crate::block::Height(10),
             crate::state::CreditSource::MiningReward,
         )
         .unwrap();
 
     assert_eq!(
-        account.debit_at(Amount(1), crate::types::Height(9)),
+        account.debit_at(Amount(1), crate::block::Height(9)),
         Err(StateError::InsufficientBalance)
     );
     assert_eq!(
-        account.debit_at(Amount(1), crate::types::Height(10)),
+        account.debit_at(Amount(1), crate::block::Height(10)),
         Ok(())
     );
     assert_eq!(account.balance, Amount(99));
@@ -142,7 +144,7 @@ fn default_debit_does_not_bypass_locked_credits() {
     account
         .credit_locked(
             Amount(100),
-            crate::types::Height(10),
+            crate::block::Height(10),
             crate::state::CreditSource::MiningReward,
         )
         .unwrap();
@@ -160,14 +162,14 @@ fn compacts_credits_with_same_unlock_policy() {
     account
         .credit_locked(
             Amount(10),
-            crate::types::Height(5),
+            crate::block::Height(5),
             crate::state::CreditSource::Transaction,
         )
         .unwrap();
     account
         .credit_locked(
             Amount(15),
-            crate::types::Height(5),
+            crate::block::Height(5),
             crate::state::CreditSource::Transaction,
         )
         .unwrap();

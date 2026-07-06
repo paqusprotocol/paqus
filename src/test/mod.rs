@@ -1,5 +1,4 @@
 mod block;
-mod checkpoint;
 mod consensus;
 mod crypto;
 mod genesis;

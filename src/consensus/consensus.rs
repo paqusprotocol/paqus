@@ -1,18 +1,25 @@
 use crate::block::Block;
-use crate::params::{
-    BLOCK_TIME, DIFFICULTY_ADJUSTMENT_INTERVAL, DIFFICULTY_START, HASH_SIZE, MAX_DIFFICULTY,
-    MAX_DIFFICULTY_ADJUSTMENT_BITS, MIN_DIFFICULTY, PROOF_OF_WORK_HASH_SIZE,
+use crate::block::{BlockHeight, Height};
+use crate::crypto::{
+    BlockHash, HASH_SIZE, Hash, PreviousHash, ProofOfWorkHash, argon2_proof_of_work_hash,
+    hash_meets_difficulty,
 };
-use crate::types::{BlockHash, BlockHeight, Hash, Height, PreviousHash, ProofOfWorkHash};
-use argon2::{Algorithm, Argon2, Params, Version};
 
 use crate::error::ConsensusError;
 
-const ARGON2_POW_SALT: &[u8] = b"paquscore-proof-of-work";
-const ARGON2_POW_MEMORY_KIB: u32 = 512 * 1024; // 512MiB
-const ARGON2_POW_TIME_COST: u32 = 1;
-const ARGON2_POW_PARALLELISM: u32 = 2;
-const ARGON2_POW_OUTPUT_LEN: usize = 32;
+const SECOND: u32 = 1;
+const MINUTE: u32 = 60 * SECOND;
+const HOUR: u32 = 60 * MINUTE;
+const DAY: u32 = 24 * HOUR;
+pub const BLOCK_TIME: u32 = 5 * MINUTE;
+pub const BLOCKS_PER_DAY: u64 = DAY as u64 / BLOCK_TIME as u64;
+pub const BLOCKS_PER_YEAR: u64 = 365 * BLOCKS_PER_DAY;
+pub const MIN_DIFFICULTY: u32 = 1;
+pub const DIFFICULTY_START: u32 = 1;
+pub const DIFFICULTY_ADJUSTMENT_INTERVAL: u64 = 2016;
+pub const DIFFICULTY_TIMESPAN_CLAMP_FACTOR: u64 = 16;
+pub const MAX_DIFFICULTY_ADJUSTMENT_BITS: u32 = 4;
+pub const MAX_FUTURE_TIME: u32 = 2 * MINUTE;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ConsensusConfig {
@@ -34,7 +41,7 @@ pub struct Consensus {
 
 impl Consensus {
     pub fn new(config: ConsensusConfig) -> Result<Self, ConsensusError> {
-        if config.difficulty < MIN_DIFFICULTY || config.difficulty > MAX_DIFFICULTY {
+        if config.difficulty < MIN_DIFFICULTY {
             return Err(ConsensusError::InvalidDifficulty);
         }
 
@@ -135,7 +142,11 @@ impl Consensus {
             return Ok(());
         }
 
-        let hash = argon2_proof_of_work_hash(block)?;
+        if block.difficulty() != self.config.difficulty {
+            return Err(ConsensusError::UnexpectedDifficulty);
+        }
+
+        let hash = proof_of_work_hash(block)?;
         self.validate_proof_of_work_hash_with_difficulty(&hash, block.difficulty())
     }
 
@@ -151,7 +162,7 @@ impl Consensus {
         hash: &ProofOfWorkHash,
         difficulty: u32,
     ) -> Result<(), ConsensusError> {
-        if !(MIN_DIFFICULTY..=MAX_DIFFICULTY).contains(&difficulty) {
+        if difficulty < MIN_DIFFICULTY {
             return Err(ConsensusError::InvalidDifficulty);
         }
 
@@ -163,7 +174,7 @@ impl Consensus {
     }
 
     pub fn proof_of_work_hash(&self, block: &Block) -> Result<ProofOfWorkHash, ConsensusError> {
-        argon2_proof_of_work_hash(block)
+        proof_of_work_hash(block)
     }
 
     pub fn retarget_difficulty(
@@ -173,7 +184,7 @@ impl Consensus {
         last_timestamp: u64,
         block_count: u64,
     ) -> Result<u32, ConsensusError> {
-        if !(MIN_DIFFICULTY..=MAX_DIFFICULTY).contains(&current_difficulty) {
+        if current_difficulty < MIN_DIFFICULTY {
             return Err(ConsensusError::InvalidDifficulty);
         }
 
@@ -182,9 +193,8 @@ impl Consensus {
         }
 
         let target_timespan = BLOCK_TIME as u64 * block_count;
-        let min_timespan = target_timespan / crate::params::DIFFICULTY_TIMESPAN_CLAMP_FACTOR;
-        let max_timespan =
-            target_timespan.saturating_mul(crate::params::DIFFICULTY_TIMESPAN_CLAMP_FACTOR);
+        let min_timespan = target_timespan / DIFFICULTY_TIMESPAN_CLAMP_FACTOR;
+        let max_timespan = target_timespan.saturating_mul(DIFFICULTY_TIMESPAN_CLAMP_FACTOR);
         let actual_timespan = last_timestamp
             .saturating_sub(first_timestamp)
             .clamp(min_timespan.max(1), max_timespan.max(1));
@@ -196,7 +206,7 @@ impl Consensus {
             current_difficulty.saturating_sub(adjustment.unsigned_abs())
         };
 
-        Ok(next.clamp(MIN_DIFFICULTY, MAX_DIFFICULTY))
+        Ok(next.max(MIN_DIFFICULTY))
     }
 }
 
@@ -232,47 +242,11 @@ fn difficulty_adjustment_bits(target_timespan: u64, actual_timespan: u64) -> i32
     adjustment
 }
 
-fn argon2_proof_of_work_hash(block: &Block) -> Result<ProofOfWorkHash, ConsensusError> {
-    let params = Params::new(
-        ARGON2_POW_MEMORY_KIB,
-        ARGON2_POW_TIME_COST,
-        ARGON2_POW_PARALLELISM,
-        Some(ARGON2_POW_OUTPUT_LEN),
-    )
-    .map_err(|_| ConsensusError::InvalidProofOfWorkParameters)?;
-    let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
+fn proof_of_work_hash(block: &Block) -> Result<ProofOfWorkHash, ConsensusError> {
     let header_bytes =
         borsh::to_vec(&block.header).expect("block header serialization should not fail");
-    let mut output = [0_u8; PROOF_OF_WORK_HASH_SIZE];
-
-    argon2
-        .hash_password_into(&header_bytes, ARGON2_POW_SALT, &mut output)
-        .map_err(|_| ConsensusError::InvalidProofOfWorkParameters)?;
-
-    Ok(ProofOfWorkHash(output))
-}
-
-fn hash_meets_difficulty(hash: &ProofOfWorkHash, difficulty: u32) -> bool {
-    let full_zero_bytes = (difficulty / 8) as usize;
-    let remaining_zero_bits = (difficulty % 8) as u8;
-
-    if full_zero_bytes > hash.0.len() {
-        return false;
-    }
-
-    if !hash.0.iter().take(full_zero_bytes).all(|byte| *byte == 0) {
-        return false;
-    }
-
-    if remaining_zero_bits == 0 {
-        return true;
-    }
-
-    let Some(next_byte) = hash.0.get(full_zero_bytes) else {
-        return false;
-    };
-    let mask = 0xff << (8 - remaining_zero_bits);
-    next_byte & mask == 0
+    argon2_proof_of_work_hash(&header_bytes)
+        .map_err(|_| ConsensusError::InvalidProofOfWorkParameters)
 }
 
 #[allow(dead_code)]

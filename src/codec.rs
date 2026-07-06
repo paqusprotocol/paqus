@@ -1,40 +1,9 @@
 use crate::block::{Block, BlockHeader};
+use crate::crypto::{BlockHash, HASH_SIZE, StateRoot, TransactionHash};
+pub use crate::crypto::{HashDomain, domain_hash, hash_bytes};
 use crate::error::CodecError;
 use crate::transaction::{SignedTransaction, Transaction};
-use crate::types::{BlockHash, Hash, StateRoot, TransactionHash};
 use borsh::{BorshDeserialize, BorshSerialize};
-use sha3::{Digest, Sha3_512};
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum HashDomain {
-    Transaction,
-    SignedTransaction,
-    BlockHeader,
-    GenesisAllocation,
-    Coinbase,
-    MerkleNode,
-    AccountState,
-    StateNode,
-    SnapshotRoot,
-    Raw,
-}
-
-impl HashDomain {
-    fn tag(self) -> &'static [u8] {
-        match self {
-            HashDomain::Transaction => b"PAQUS_HASH_TX",
-            HashDomain::SignedTransaction => b"PAQUS_HASH_SIGNED_TX",
-            HashDomain::BlockHeader => b"PAQUS_HASH_BLOCK_HEADER",
-            HashDomain::GenesisAllocation => b"PAQUS_HASH_GENESIS_ALLOCATION",
-            HashDomain::Coinbase => b"PAQUS_HASH_COINBASE",
-            HashDomain::MerkleNode => b"PAQUS_HASH_MERKLE_NODE",
-            HashDomain::AccountState => b"PAQUS_HASH_ACCOUNT_STATE",
-            HashDomain::StateNode => b"PAQUS_HASH_STATE_NODE",
-            HashDomain::SnapshotRoot => crate::params::SNAPSHOT_ROOT_DOMAIN,
-            HashDomain::Raw => b"PAQUS_HASH_RAW",
-        }
-    }
-}
 
 pub fn canonical_bytes<T: BorshSerialize>(value: &T) -> Vec<u8> {
     borsh::to_vec(value).expect("canonical serialization should not fail")
@@ -66,23 +35,8 @@ pub fn block_bytes(block: &Block) -> Vec<u8> {
     canonical_bytes(block)
 }
 
-pub fn state_root_bytes(state_root: &StateRoot) -> [u8; crate::params::HASH_SIZE] {
+pub fn state_root_bytes(state_root: &StateRoot) -> [u8; HASH_SIZE] {
     state_root.0
-}
-
-pub fn hash_bytes(bytes: &[u8]) -> Hash {
-    domain_hash(HashDomain::Raw, bytes)
-}
-
-pub fn domain_hash(domain: HashDomain, bytes: &[u8]) -> Hash {
-    let mut hasher = Sha3_512::new();
-    hasher.update(domain.tag());
-    hasher.update((bytes.len() as u64).to_le_bytes());
-    hasher.update(bytes);
-    let digest = hasher.finalize();
-    let mut hash = [0_u8; crate::params::HASH_SIZE];
-    hash.copy_from_slice(&digest);
-    Hash(hash)
 }
 
 pub fn transaction_hash(transaction: &Transaction) -> TransactionHash {

@@ -1,6 +1,8 @@
 use crate::block::Block;
+use crate::block::{Height, Nonce};
+use crate::crypto::Address;
+use crate::crypto::{Hash, PreviousHash};
 use crate::ledger::fork_choice::{ForkChoice, ForkChoiceError, block_work};
-use crate::types::{Address, Hash, Height, Nonce, PreviousHash};
 
 fn address(byte: u8) -> Address {
     Address([byte; 20])
@@ -42,17 +44,17 @@ fn rejects_block_with_invalid_difficulty() {
         Err(ForkChoiceError::InvalidDifficulty)
     );
     assert!(fork_choice.is_empty());
+}
 
-    assert_eq!(
-        fork_choice.insert_block(block(
-            0,
-            Hash([0; 64]),
-            crate::params::MAX_DIFFICULTY + 1,
-            1,
-        )),
-        Err(ForkChoiceError::InvalidDifficulty)
+#[test]
+fn accepts_block_with_difficulty_above_pow_hash_bit_width() {
+    let mut fork_choice = ForkChoice::new();
+
+    assert!(
+        fork_choice
+            .insert_block(block(0, Hash([0; 64]), u32::MAX, 1))
+            .is_ok()
     );
-    assert!(fork_choice.is_empty());
 }
 
 #[test]

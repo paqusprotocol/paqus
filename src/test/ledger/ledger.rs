@@ -1,12 +1,15 @@
 use super::{Ledger, LedgerError, validate_transaction_against_state};
 use crate::block::{Block, CoinbaseTransaction};
+use crate::block::{Height, Nonce};
 use crate::consensus::block_reward;
+use crate::consensus::supply::Amount;
+use crate::crypto::Address;
+use crate::crypto::Hash;
 use crate::crypto::{address_from_public_key, generate_keypair, sign};
 use crate::state::{Account, CreditSource};
 use crate::transaction::{SignedTransaction, Transaction};
-use crate::types::{Address, Amount, Hash, Height, Nonce};
 
-const TEST_FEE: u32 = 2;
+const TEST_FEE: u64 = 2;
 
 fn address(byte: u8) -> Address {
     Address([byte; 20])
@@ -27,7 +30,7 @@ fn empty_genesis() -> Block {
     )
 }
 
-fn signed_transaction(nonce: u64, to: Address, amount: u32) -> SignedTransaction {
+fn signed_transaction(nonce: u64, to: Address, amount: u64) -> SignedTransaction {
     let keypair = generate_keypair();
     let from = address_from_public_key(&keypair.public_key);
     let payload = Transaction::new(from, to, Amount(amount), Amount(TEST_FEE), Nonce(nonce));
@@ -37,10 +40,10 @@ fn signed_transaction(nonce: u64, to: Address, amount: u32) -> SignedTransaction
 }
 
 fn signed_transaction_from(
-    secret_key: &crate::types::SecretKey,
-    public_key: crate::types::PublicKey,
+    secret_key: &crate::crypto::SecretKey,
+    public_key: crate::crypto::PublicKey,
     to: Address,
-    amount: u32,
+    amount: u64,
     nonce: u64,
 ) -> SignedTransaction {
     let from = address_from_public_key(&public_key);
@@ -50,7 +53,7 @@ fn signed_transaction_from(
     SignedTransaction::new(payload, public_key, signature)
 }
 
-fn funded_ledger(balance: u32) -> (Ledger, Address) {
+fn funded_ledger(balance: u64) -> (Ledger, Address) {
     let signed = signed_transaction(0, address(2), 10);
     let sender = signed.transaction.from;
     let mut ledger = Ledger::new();
@@ -76,12 +79,15 @@ fn tracks_total_supply_and_rejects_supply_overflow() {
     let mut ledger = Ledger::new();
 
     ledger
-        .create_account(address(1), Amount(crate::params::MAX_UNIT_SUPPLY))
+        .create_account(
+            address(1),
+            Amount(crate::consensus::supply::MAX_UNIT_SUPPLY),
+        )
         .unwrap();
 
     assert_eq!(
         ledger.total_supply(),
-        Ok(Amount(crate::params::MAX_UNIT_SUPPLY))
+        Ok(Amount(crate::consensus::supply::MAX_UNIT_SUPPLY))
     );
     assert_eq!(
         ledger.create_account(address(2), Amount(1)),
@@ -96,7 +102,10 @@ fn mintable_subsidy_is_limited_by_remaining_mined_supply() {
     let mut ledger = Ledger::new();
 
     ledger
-        .create_account(address(1), Amount(crate::params::MAX_UNIT_SUPPLY - 50))
+        .create_account(
+            address(1),
+            Amount(crate::consensus::supply::MAX_UNIT_SUPPLY - 50),
+        )
         .unwrap();
 
     assert_eq!(ledger.mintable_subsidy(Height(1)), Ok(Amount(50)));
@@ -107,7 +116,10 @@ fn mintable_subsidy_is_zero_after_mined_supply_is_exhausted() {
     let mut ledger = Ledger::new();
 
     ledger
-        .create_account(address(1), Amount(crate::params::MAX_UNIT_SUPPLY))
+        .create_account(
+            address(1),
+            Amount(crate::consensus::supply::MAX_UNIT_SUPPLY),
+        )
         .unwrap();
 
     assert_eq!(ledger.mintable_subsidy(Height(1)), Ok(Amount(0)));
@@ -121,7 +133,10 @@ fn caps_minted_subsidy_at_remaining_supply() {
     let miner = address(9);
     let mut ledger = Ledger::new();
     ledger
-        .create_account(sender, Amount(crate::params::MAX_UNIT_SUPPLY - 50))
+        .create_account(
+            sender,
+            Amount(crate::consensus::supply::MAX_UNIT_SUPPLY - 50),
+        )
         .unwrap();
     ledger.create_account(receiver, Amount(0)).unwrap();
     ledger.create_account(miner, Amount(0)).unwrap();
@@ -141,7 +156,7 @@ fn caps_minted_subsidy_at_remaining_supply() {
         Height(1),
         ledger.tip_hash().unwrap(),
         miner,
-        crate::params::DIFFICULTY_START,
+        crate::consensus::DIFFICULTY_START,
         1_700_000_001,
         Nonce(0),
         Some(CoinbaseTransaction::new(
@@ -156,17 +171,17 @@ fn caps_minted_subsidy_at_remaining_supply() {
     assert_eq!(ledger.apply_block(block), Ok(()));
     assert_eq!(
         ledger.total_supply(),
-        Ok(Amount(crate::params::MAX_UNIT_SUPPLY))
+        Ok(Amount(crate::consensus::supply::MAX_UNIT_SUPPLY))
     );
     assert_eq!(ledger.balance(&miner), Some(Amount(50 + TEST_FEE)));
     let miner_account = ledger.account(&miner).unwrap();
     assert_eq!(miner_account.available_balance_at(Height(1)), Amount(0));
     assert_eq!(
-        miner_account.available_balance_at(Height(1 + crate::params::CONFIRMATION_DEPTH as u64)),
+        miner_account.available_balance_at(Height(1 + crate::ledger::CONFIRMATION_DEPTH as u64)),
         Amount(TEST_FEE)
     );
     assert_eq!(
-        miner_account.available_balance_at(Height(1 + crate::params::BLOCK_REWARD_MATURITY as u64)),
+        miner_account.available_balance_at(Height(1 + crate::ledger::BLOCK_REWARD_MATURITY as u64)),
         Amount(50 + TEST_FEE)
     );
 }
@@ -179,7 +194,7 @@ fn accepts_zero_subsidy_when_supply_is_exhausted() {
     let miner = address(9);
     let mut ledger = Ledger::new();
     ledger
-        .create_account(sender, Amount(crate::params::MAX_UNIT_SUPPLY))
+        .create_account(sender, Amount(crate::consensus::supply::MAX_UNIT_SUPPLY))
         .unwrap();
     ledger.create_account(receiver, Amount(0)).unwrap();
     ledger.create_account(miner, Amount(0)).unwrap();
@@ -191,7 +206,7 @@ fn accepts_zero_subsidy_when_supply_is_exhausted() {
         Height(1),
         ledger.tip_hash().unwrap(),
         miner,
-        crate::params::DIFFICULTY_START,
+        crate::consensus::DIFFICULTY_START,
         1_700_000_001,
         Nonce(0),
         Some(CoinbaseTransaction::new(miner, Amount(0), Amount(TEST_FEE))),
@@ -202,7 +217,7 @@ fn accepts_zero_subsidy_when_supply_is_exhausted() {
     assert_eq!(ledger.apply_block(block), Ok(()));
     assert_eq!(
         ledger.total_supply(),
-        Ok(Amount(crate::params::MAX_UNIT_SUPPLY))
+        Ok(Amount(crate::consensus::supply::MAX_UNIT_SUPPLY))
     );
     assert_eq!(ledger.balance(&miner), Some(Amount(TEST_FEE)));
 }
@@ -225,7 +240,7 @@ fn rejects_inexact_coinbase_subsidy() {
         Height(1),
         ledger.tip_hash().unwrap(),
         miner,
-        crate::params::DIFFICULTY_START,
+        crate::consensus::DIFFICULTY_START,
         1_700_000_001,
         Nonce(0),
         Some(CoinbaseTransaction::new(
@@ -297,10 +312,10 @@ fn transaction_outputs_mature_after_confirmation_depth() {
 
     assert_eq!(ledger.apply_transaction_at(&transaction, Height(7)), Ok(()));
     let receiver = ledger.account(&address(2)).unwrap();
-    let immature_height = Height(7 + crate::params::CONFIRMATION_DEPTH.saturating_sub(1) as u64);
+    let immature_height = Height(7 + crate::ledger::CONFIRMATION_DEPTH.saturating_sub(1) as u64);
     assert_eq!(receiver.available_balance_at(immature_height), Amount(0));
     assert_eq!(
-        receiver.available_balance_at(Height(7 + crate::params::CONFIRMATION_DEPTH as u64)),
+        receiver.available_balance_at(Height(7 + crate::ledger::CONFIRMATION_DEPTH as u64)),
         Amount(10)
     );
 }

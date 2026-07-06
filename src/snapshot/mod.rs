@@ -1,7 +1,11 @@
+use crate::block::Height;
 use crate::codec::{HashDomain, canonical_bytes, domain_hash};
-use crate::params::{SNAPSHOT_INTERVAL, SNAPSHOT_MIN_CONFIRMATIONS};
-use crate::types::{BlockHash, Hash, Height, StateRoot};
+use crate::crypto::{BlockHash, Hash, StateRoot};
+use crate::ledger::FINALITY_DEPTH;
 use borsh::{BorshDeserialize, BorshSerialize};
+
+pub const SNAPSHOT_INTERVAL: u64 = 50_000;
+pub const SNAPSHOT_MIN_CONFIRMATIONS: u32 = FINALITY_DEPTH;
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SnapshotRootPayload {

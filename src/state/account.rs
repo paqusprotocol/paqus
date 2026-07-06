@@ -1,6 +1,9 @@
+use crate::block::{BlockHeight, Nonce};
+use crate::consensus::supply::{Amount, Balance};
+use crate::crypto::Address;
 use crate::error::StateError;
+use crate::transaction::AccountNonce;
 use crate::transaction::Transaction;
-use crate::types::{AccountNonce, Address, Amount, Balance, BlockHeight, Nonce};
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -53,7 +56,7 @@ impl Account {
             nonce: Nonce(0),
             credits: vec![Credit {
                 amount: balance,
-                spendable_height: crate::types::Height(0),
+                spendable_height: crate::block::Height(0),
                 source: CreditSource::Genesis,
             }],
         }
@@ -67,7 +70,7 @@ impl Account {
             nonce,
             credits: vec![Credit {
                 amount: balance,
-                spendable_height: crate::types::Height(0),
+                spendable_height: crate::block::Height(0),
                 source: CreditSource::Genesis,
             }],
         }
@@ -96,7 +99,7 @@ impl Account {
     }
 
     pub fn credit(&mut self, amount: Balance) -> Result<(), StateError> {
-        self.credit_locked(amount, crate::types::Height(0), CreditSource::Genesis)
+        self.credit_locked(amount, crate::block::Height(0), CreditSource::Genesis)
     }
 
     pub fn credit_locked(
@@ -122,7 +125,7 @@ impl Account {
     }
 
     pub fn debit(&mut self, amount: Balance) -> Result<(), StateError> {
-        self.debit_at(amount, crate::types::Height(0))
+        self.debit_at(amount, crate::block::Height(0))
     }
 
     pub fn debit_at(&mut self, amount: Balance, height: BlockHeight) -> Result<(), StateError> {
@@ -150,7 +153,7 @@ impl Account {
     }
 
     pub fn compact_credits(&mut self) {
-        let mut compacted: BTreeMap<(BlockHeight, CreditSource), u32> = BTreeMap::new();
+        let mut compacted: BTreeMap<(BlockHeight, CreditSource), u64> = BTreeMap::new();
         for credit in &self.credits {
             if credit.amount.0 == 0 {
                 continue;

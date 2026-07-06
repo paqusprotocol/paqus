@@ -24,23 +24,41 @@ use a similar name, mark, or terminology.
 ## Main Modules
 
 - `codec`: canonical Borsh encoding, decode validation, and domain-separated SHA3-512 hashing.
-- `crypto`: ML-DSA-87 keys, signatures, verification, and address derivation.
+- `crypto`: ML-DSA-87 keys, signatures, verification, Bech32 addresses, and hashing.
 - `transaction`: transaction payloads, witnesses, signed transactions, and transaction validation.
-- `block`: block headers, blocks, genesis allocations, coinbase, merkle roots, and block validation.
-- `consensus`: proof-of-work validation, block reward schedule, difficulty retargeting, and version checks.
+- `block`: block headers, blocks, coinbase, merkle roots, and block validation.
+- `consensus`: proof-of-work validation, supply definitions, block reward schedule, and difficulty retargeting.
 - `ledger`: account state, state roots, state proofs, fork choice, reorg planning, rewards, and invariants.
-- `genesis`: canonical genesis block and ledger helpers.
-- `checkpoint` and `snapshot`: checkpoint lookup and snapshot root helpers.
-- `params`, `types`, and `version`: protocol constants, typed primitives, and version policy.
-- `core`: convenience re-export surface for applications.
+- `genesis`: canonical genesis block and empty-ledger helpers.
+- `snapshot`: snapshot root helpers.
+
+The older broad modules `params`, `types`, `version`, `checkpoint`, and `core`
+have been removed. Constants and wrapper types now live beside the logic that
+uses them:
+
+- address types and constants live in `crypto::address`;
+- hash types and hash functions live in `crypto::hash`;
+- key, signature, and key-size constants live in `crypto::keygen`;
+- amount, balance, fee, reward, and supply definitions live in `consensus::supply`;
+- block height and nonce types live in `block`;
+- account nonce lives in `transaction`;
+- maturity and finality depths live in `ledger`;
+- chain identity lives in `genesis::ChainParams`.
 
 ## Units And Supply
 
 - Smallest unit: `paqus`.
-- `1 XPQ = 100 paqus`.
-- Total supply cap: `u32::MAX` paqus.
-- Genesis premine: `95 paqus`.
+- `1 XPQ = 100_000_000 paqus`.
+- Total supply cap: `42_000_000 XPQ` (`4_200_000_000_000_000 paqus`).
+- Amounts, balances, and fees use `u64` units.
+- Genesis has no premine allocation.
 - New subsidy minting must never push total supply above the cap.
+
+## Addresses
+
+Wallet addresses use standard Bech32 with the human-readable prefix `PX`.
+Addresses encode 20 bytes and are formatted uppercase. The Bech32 checksum is
+the standard 6-character checksum.
 
 ## Current Consensus Parameters
 
@@ -50,7 +68,7 @@ CHAIN_ID = 747
 COIN_NAME = XPQ
 UNIT_NAME = paqus
 PROTOCOL_STAGE = Mainnet
-PROTOCOL_VERSION = 3
+PROTOCOL_VERSION = 6
 NETWORK_MAGIC = 58505101
 BLOCK_TIME = 5 minutes
 BLOCKS_PER_DAY = 288
@@ -58,12 +76,13 @@ DIFFICULTY_ADJUSTMENT_INTERVAL = 2016 blocks
 CONFIRMATION_DEPTH = 10 blocks
 BLOCK_REWARD_MATURITY = 120 blocks
 FINALITY_DEPTH = 100 blocks
-BLOCK_REWARD = 5_000 paqus
-TAIL_EMISSION = 100 paqus
+DECIMALS = 8
+BLOCK_REWARD = 5_000_000_000 paqus
+TAIL_EMISSION = 100_000_000 paqus
 TAIL_EMISSION_START_HEIGHT = 420_480
 SNAPSHOT_INTERVAL = 50_000 blocks
-CHECKPOINT_INTERVAL = 50_000 blocks
 ARGON2_POW_MEMORY = 512 MiB
+ARGON2_POW_TIME_COST = 2
 ARGON2_POW_PARALLELISM = 2 lanes
 ```
 
@@ -84,6 +103,11 @@ fee carried by each transaction, checks that a sender can pay `amount + fee`,
 and requires the block coinbase fee total to match the included transactions.
 Minimum relay fee, market fee, and pending transaction expiry are enforced by
 node mempool policy.
+
+Difficulty has a minimum of `1` for normal consensus validation. Core does not
+define a protocol maximum difficulty. If a requested difficulty exceeds what a
+32-byte proof-of-work hash can satisfy, proof-of-work validation simply fails as
+insufficient work rather than rejecting the difficulty value as out of range.
 
 Forks may only reorganize non-final blocks. A block is final once the active tip
 height is at least:
@@ -164,11 +188,10 @@ transaction payload plus its witness.
 
 A block is valid when:
 
-- block version is supported at its height;
 - genesis blocks have no coinbase and no transactions;
-- non-genesis blocks have coinbase and no genesis allocations;
+- non-genesis blocks have coinbase;
 - transaction count and serialized size are within limits;
-- transaction fees and coinbase totals do not overflow `u32`;
+- transaction fees and coinbase totals do not overflow `u64`;
 - timestamp is not too far in the future;
 - transaction signatures and sender addresses are valid;
 - merkle root matches block contents;
@@ -223,11 +246,13 @@ Genesis is deterministic. The canonical genesis hash is:
 32ac01d654c1fe57d12506456bb7237f4baf214a3573b11fcdb128974d95864f4031856cae53a859c5adc5d2880670739571057b71b2575642e5cce6d16efe1d
 ```
 
+Genesis creates no initial account allocations and no premine supply.
+
 ## Invariants
 
 Core invariants include:
 
-- total supply must never exceed `u32::MAX`;
+- total supply must never exceed `42_000_000 XPQ`;
 - account map key must match account address;
 - sum of account credits must equal account balance;
 - failed block application must not mutate state;
@@ -237,7 +262,10 @@ Core invariants include:
 ## Example
 
 ```rust
-use paqus::core::{Block, Hash, Height, Nonce, SignedTransaction, block_header_hash};
+use paqus::block::{Block, Height, Nonce};
+use paqus::codec::block_header_hash;
+use paqus::crypto::{Address, Hash};
+use paqus::transaction::SignedTransaction;
 
 fn inspect(block: &Block, tx: &SignedTransaction) {
     let block_hash = block_header_hash(&block.header);
@@ -250,7 +278,7 @@ fn inspect(block: &Block, tx: &SignedTransaction) {
 let _genesis_like = Block::new(
     Height(0),
     Hash([0; 64]),
-    paqus::core::Address([0; 20]),
+    Address([0; 20]),
     1_700_000_000,
     Nonce(0),
     vec![],
@@ -258,6 +286,27 @@ let _genesis_like = Block::new(
 ```
 
 ## Changelog
+
+### 0.2.1 - Mainnet
+
+- Reorganized the public API around ownership boundaries and removed the broad
+  `params`, `types`, `version`, `checkpoint`, and `core` modules.
+- Moved hash wrappers and hash helpers into `crypto::hash`.
+- Moved coin units, supply caps, amount/balance/fee wrappers, and reward
+  calculation into `consensus::supply`.
+- Moved key, signature, and key-size definitions into `crypto::keygen`.
+- Changed wallet addresses to uppercase Bech32 with HRP `PX`, 20-byte payloads,
+  and standard 6-character checksums.
+- Changed amount, balance, fee, and supply storage from `u32` to `u64`.
+- Set XPQ precision to 8 decimals and capped supply at `42_000_000 XPQ`.
+- Removed genesis premine allocations.
+- Removed protocol version constants from core.
+- Removed checkpoint validation from core.
+- Kept Argon2 proof-of-work memory at 512 MiB and parallelism at 2 lanes while
+  setting time cost to 2.
+- Removed the protocol maximum difficulty bound. Difficulty still has minimum
+  `1`; unsatisfiable high difficulty values fail proof-of-work naturally.
+- Added `zeroize` for secret-key material and static protocol size assertions.
 
 ### 0.2.0 - Mainnet
 
@@ -270,8 +319,7 @@ let _genesis_like = Block::new(
 - Added explicit trusted account-state import naming with `Account::trusted_with_nonce`.
 - Added difficulty-range checks to fork choice insertion.
 - Simplified chain parameters to one Paqus protocol identity instead of separate mainnet/testnet/devnet profiles.
-- Matched checkpoint cadence to snapshot cadence at 50,000 blocks.
-- Set Argon2 proof-of-work parameters to 512 MiB memory, time cost 1, parallelism 2, output 32 bytes.
+- Set Argon2 proof-of-work parameters to 512 MiB memory, time cost 2, parallelism 2, output 32 bytes.
 
 ### 0.1.9 - Mainnet
 

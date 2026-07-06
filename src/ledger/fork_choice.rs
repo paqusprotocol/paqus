@@ -1,6 +1,7 @@
 use crate::block::Block;
-use crate::params::{HASH_SIZE, MAX_DIFFICULTY, MIN_DIFFICULTY};
-use crate::types::{BlockHash, BlockHeight, Hash, Height};
+use crate::block::{BlockHeight, Height};
+use crate::consensus::MIN_DIFFICULTY;
+use crate::crypto::{BlockHash, HASH_SIZE, Hash};
 use std::collections::BTreeMap;
 use std::ops::Add;
 
@@ -72,7 +73,7 @@ impl ForkChoice {
             return Err(ForkChoiceError::DuplicateBlock);
         }
 
-        if !(MIN_DIFFICULTY..=MAX_DIFFICULTY).contains(&block.difficulty()) {
+        if block.difficulty() < MIN_DIFFICULTY {
             return Err(ForkChoiceError::InvalidDifficulty);
         }
 

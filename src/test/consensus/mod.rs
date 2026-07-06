@@ -1,18 +1,18 @@
 use crate::block::{Block, BlockError};
+use crate::block::{Height, Nonce};
+use crate::consensus::supply::Amount;
+use crate::consensus::supply::{BLOCK_REWARD, MAX_MINED_SUPPLY, MAX_UNIT_SUPPLY, TAIL_EMISSION};
 use crate::consensus::{
-    Consensus, ConsensusConfig, ConsensusError, block_reward, tail_emission_start_height,
+    BLOCK_TIME, Consensus, ConsensusConfig, ConsensusError, DIFFICULTY_ADJUSTMENT_INTERVAL,
+    TAIL_EMISSION_START_HEIGHT, block_reward, tail_emission_start_height,
 };
-use crate::crypto::{address_from_public_key, generate_keypair, sign};
-use crate::params::{
-    BLOCK_REWARD, BLOCK_TIME, DIFFICULTY_ADJUSTMENT_INTERVAL, GENESIS_PREMINE, MAX_MINED_SUPPLY,
-    MAX_UNIT_SUPPLY, TAIL_EMISSION, TAIL_EMISSION_START_HEIGHT,
+use crate::crypto::Address;
+use crate::crypto::{
+    BlockHash, Hash, PreviousHash, ProofOfWorkHash, address_from_public_key, generate_keypair, sign,
 };
 use crate::transaction::{SignedTransaction, Transaction};
-use crate::types::{
-    Address, Amount, BlockHash, Hash, Height, Nonce, PreviousHash, ProofOfWorkHash,
-};
 
-const TEST_FEE: u32 = 2;
+const TEST_FEE: u64 = 2;
 
 fn signed_transaction(nonce: u64) -> SignedTransaction {
     let keypair = generate_keypair();
@@ -63,6 +63,17 @@ fn rejects_invalid_config() {
     assert_eq!(
         Consensus::new(ConsensusConfig { difficulty: 0 }),
         Err(ConsensusError::InvalidDifficulty)
+    );
+}
+
+#[test]
+fn accepts_config_above_pow_hash_bit_width() {
+    assert_eq!(
+        Consensus::new(ConsensusConfig { difficulty: 257 })
+            .unwrap()
+            .config
+            .difficulty,
+        257
     );
 }
 
@@ -126,7 +137,7 @@ fn rejects_next_block_timestamp_too_far_in_future() {
     let genesis = block(0, Hash([0; 64]));
     let mut next = block(1, genesis.hash());
     let now = genesis.timestamp();
-    next.header.timestamp = now + crate::params::MAX_FUTURE_TIME as u64 + 1;
+    next.header.timestamp = now + crate::consensus::MAX_FUTURE_TIME as u64 + 1;
 
     assert_eq!(
         consensus.validate_next_block_with_tip_at(&next, &genesis, now),
@@ -144,6 +155,17 @@ fn rejects_wrong_previous_hash() {
     assert_eq!(
         consensus.validate_candidate_block(&next, Some((Height(0), BlockHash([1; 64])))),
         Err(ConsensusError::InvalidPreviousHash)
+    );
+}
+
+#[test]
+fn rejects_block_difficulty_mismatch() {
+    let consensus = Consensus::new(ConsensusConfig { difficulty: 2 }).unwrap();
+    let block = block(0, Hash([0; 64]));
+
+    assert_eq!(
+        consensus.validate_proof_of_work(&block),
+        Err(ConsensusError::UnexpectedDifficulty)
     );
 }
 
@@ -228,6 +250,20 @@ fn checks_proof_of_work_zero_bit_difficulty() {
 }
 
 #[test]
+fn treats_difficulty_above_hash_bit_width_as_unmet_pow() {
+    let consensus = Consensus::with_default_config();
+
+    assert_eq!(
+        consensus.validate_proof_of_work_hash_with_difficulty(&ProofOfWorkHash([0; 32]), 256),
+        Ok(())
+    );
+    assert_eq!(
+        consensus.validate_proof_of_work_hash_with_difficulty(&ProofOfWorkHash([0; 32]), 257),
+        Err(ConsensusError::InsufficientProofOfWork)
+    );
+}
+
+#[test]
 fn proof_of_work_hash_is_argon2_based_and_deterministic() {
     let consensus = Consensus {
         config: ConsensusConfig { difficulty: 0 },
@@ -286,22 +322,22 @@ fn retargets_difficulty_by_multiple_bits_for_large_hashrate_swings() {
 }
 
 #[test]
-fn retarget_difficulty_clamps_to_protocol_bounds() {
+fn retarget_difficulty_clamps_only_to_minimum() {
     let consensus = Consensus::with_default_config();
     let target_timespan = BLOCK_TIME as u64 * DIFFICULTY_ADJUSTMENT_INTERVAL;
 
     assert_eq!(
         consensus.retarget_difficulty(
-            crate::params::MAX_DIFFICULTY - 1,
+            u32::MAX - 1,
             0,
             target_timespan / 16,
             DIFFICULTY_ADJUSTMENT_INTERVAL
         ),
-        Ok(crate::params::MAX_DIFFICULTY)
+        Ok(u32::MAX)
     );
     assert_eq!(
         consensus.retarget_difficulty(2, 0, target_timespan * 16, DIFFICULTY_ADJUSTMENT_INTERVAL),
-        Ok(crate::params::MIN_DIFFICULTY)
+        Ok(crate::consensus::MIN_DIFFICULTY)
     );
 }
 
@@ -320,9 +356,6 @@ fn uses_block_reward_until_tail_emission_starts() {
 }
 
 #[test]
-fn mined_supply_excludes_genesis_premine_from_max_unit_supply() {
-    assert_eq!(
-        MAX_MINED_SUPPLY,
-        MAX_UNIT_SUPPLY.saturating_sub(GENESIS_PREMINE)
-    );
+fn mined_supply_matches_max_unit_supply_without_initial_allocation() {
+    assert_eq!(MAX_MINED_SUPPLY, MAX_UNIT_SUPPLY);
 }

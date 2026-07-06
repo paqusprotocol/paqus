@@ -1,10 +1,12 @@
+use crate::block::Height;
+use crate::consensus::supply::Amount;
+use crate::crypto::Address;
+use crate::crypto::Hash;
+use crate::genesis::{CURRENT_CHAIN_PARAMS, PAQUS_CHAIN};
 use crate::genesis::{
-    GENESIS_HASH, GENESIS_PREMINE_ADDRESS, GenesisConfig, create_default_genesis_ledger,
-    create_genesis_block, create_genesis_ledger, genesis_block, genesis_block_for_chain,
-    genesis_ledger, genesis_premine_amount,
+    GENESIS_HASH, GenesisConfig, create_default_genesis_ledger, create_genesis_block,
+    create_genesis_ledger, genesis_block, genesis_block_for_chain, genesis_ledger,
 };
-use crate::params::{CURRENT_CHAIN_PARAMS, GENESIS_PREMINE, PAQUS_CHAIN};
-use crate::types::{Address, Amount, Hash, Height};
 
 fn address(byte: u8) -> Address {
     Address([byte; 20])
@@ -15,11 +17,6 @@ fn config() -> GenesisConfig {
         miner_address: address(9),
         timestamp: 1_700_000_000,
     }
-}
-
-#[test]
-fn calculates_genesis_premine_in_smallest_unit() {
-    assert_eq!(genesis_premine_amount(), Ok(Amount(GENESIS_PREMINE)));
 }
 
 #[test]
@@ -51,35 +48,26 @@ fn canonical_genesis_block_matches_genesis_hash() {
 }
 
 #[test]
-fn creates_genesis_ledger_with_premine_and_genesis_block() {
+fn creates_genesis_ledger_with_genesis_block() {
     let ledger = create_genesis_ledger(config()).unwrap();
 
-    assert_eq!(
-        ledger.balance(&GENESIS_PREMINE_ADDRESS),
-        Some(Amount(GENESIS_PREMINE))
-    );
+    assert_eq!(ledger.total_supply(), Ok(Amount(0)));
     assert_eq!(ledger.tip_height(), Some(Height(0)));
     assert_eq!(ledger.block(&Height(0)).unwrap().transaction_count(), 0);
 }
 
 #[test]
-fn can_allocate_genesis_premine_to_zero_address() {
+fn genesis_allocates_no_initial_supply() {
     let ledger = create_genesis_ledger(config()).unwrap();
 
-    assert_eq!(
-        ledger.balance(&GENESIS_PREMINE_ADDRESS),
-        Some(Amount(GENESIS_PREMINE))
-    );
+    assert_eq!(ledger.total_supply(), Ok(Amount(0)));
 }
 
 #[test]
-fn creates_default_genesis_ledger_with_genesis_premine_address() {
+fn creates_default_genesis_ledger_without_initial_supply() {
     let ledger = create_default_genesis_ledger(address(9), 1_700_000_000).unwrap();
 
-    assert_eq!(
-        ledger.balance(&GENESIS_PREMINE_ADDRESS),
-        Some(Amount(GENESIS_PREMINE))
-    );
+    assert_eq!(ledger.total_supply(), Ok(Amount(0)));
 }
 
 #[test]
@@ -103,11 +91,7 @@ fn genesis_is_selected_from_chain_params() {
 }
 
 #[test]
-fn mainnet_zero_premine_address_is_intentional_supply_offset() {
-    assert_eq!(
-        PAQUS_CHAIN.genesis.premine_address,
-        [0; crate::params::ADDRESS_SIZE]
-    );
-    assert_eq!(GENESIS_PREMINE_ADDRESS, Address::ZERO);
+fn mainnet_genesis_identity_is_static() {
+    assert_eq!(PAQUS_CHAIN.genesis.miner_address, Address::ZERO.0);
     assert_eq!(PAQUS_CHAIN.genesis.timestamp, 1_700_000_000);
 }

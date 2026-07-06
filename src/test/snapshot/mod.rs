@@ -1,6 +1,7 @@
-use crate::params::{SNAPSHOT_INTERVAL, SNAPSHOT_MIN_CONFIRMATIONS};
+use crate::block::Height;
+use crate::crypto::{BlockHash, Hash, StateRoot};
+use crate::snapshot::{SNAPSHOT_INTERVAL, SNAPSHOT_MIN_CONFIRMATIONS};
 use crate::snapshot::{is_snapshot_finalized, is_snapshot_height, snapshot_root};
-use crate::types::{BlockHash, Hash, Height, StateRoot};
 
 #[test]
 fn snapshot_root_is_deterministic_and_domain_separated() {
