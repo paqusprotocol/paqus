@@ -78,148 +78,15 @@ fn creates_accounts_and_reads_balances() {
 fn tracks_total_supply_and_rejects_supply_overflow() {
     let mut ledger = Ledger::new();
 
-    ledger
-        .create_account(
-            address(1),
-            Amount(crate::consensus::supply::MAX_UNIT_SUPPLY),
-        )
-        .unwrap();
+    ledger.create_account(address(1), Amount(u64::MAX)).unwrap();
 
-    assert_eq!(
-        ledger.total_supply(),
-        Ok(Amount(crate::consensus::supply::MAX_UNIT_SUPPLY))
-    );
+    assert_eq!(ledger.total_supply(), Ok(Amount(u64::MAX)));
     assert_eq!(
         ledger.create_account(address(2), Amount(1)),
         Err(LedgerError::SupplyOverflow)
     );
     assert_eq!(ledger.balance(&address(2)), None);
     assert_eq!(ledger.validate_supply(), Ok(()));
-}
-
-#[test]
-fn mintable_subsidy_is_limited_by_remaining_mined_supply() {
-    let mut ledger = Ledger::new();
-
-    ledger
-        .create_account(
-            address(1),
-            Amount(crate::consensus::supply::MAX_UNIT_SUPPLY - 50),
-        )
-        .unwrap();
-
-    assert_eq!(ledger.mintable_subsidy(Height(1)), Ok(Amount(50)));
-}
-
-#[test]
-fn mintable_subsidy_is_zero_after_mined_supply_is_exhausted() {
-    let mut ledger = Ledger::new();
-
-    ledger
-        .create_account(
-            address(1),
-            Amount(crate::consensus::supply::MAX_UNIT_SUPPLY),
-        )
-        .unwrap();
-
-    assert_eq!(ledger.mintable_subsidy(Height(1)), Ok(Amount(0)));
-}
-
-#[test]
-fn caps_minted_subsidy_at_remaining_supply() {
-    let keypair = generate_keypair();
-    let sender = address_from_public_key(&keypair.public_key);
-    let receiver = address(2);
-    let miner = address(9);
-    let mut ledger = Ledger::new();
-    ledger
-        .create_account(
-            sender,
-            Amount(crate::consensus::supply::MAX_UNIT_SUPPLY - 50),
-        )
-        .unwrap();
-    ledger.create_account(receiver, Amount(0)).unwrap();
-    ledger.create_account(miner, Amount(0)).unwrap();
-    let genesis = Block::new(
-        Height(0),
-        Hash([0; 64]),
-        miner,
-        1_700_000_000,
-        Nonce(0),
-        vec![],
-    );
-    ledger.apply_block(genesis).unwrap();
-
-    let transaction =
-        signed_transaction_from(&keypair.secret_key, keypair.public_key, receiver, 1, 0);
-    let mut block = Block::with_coinbase(
-        Height(1),
-        ledger.tip_hash().unwrap(),
-        miner,
-        crate::consensus::DIFFICULTY_START,
-        1_700_000_001,
-        Nonce(0),
-        Some(CoinbaseTransaction::new(
-            miner,
-            Amount(50),
-            Amount(TEST_FEE),
-        )),
-        vec![transaction],
-    );
-    block.set_state_root(ledger.state_root_after_block(&block).unwrap());
-
-    assert_eq!(ledger.apply_block(block), Ok(()));
-    assert_eq!(
-        ledger.total_supply(),
-        Ok(Amount(crate::consensus::supply::MAX_UNIT_SUPPLY))
-    );
-    assert_eq!(ledger.balance(&miner), Some(Amount(50 + TEST_FEE)));
-    let miner_account = ledger.account(&miner).unwrap();
-    assert_eq!(miner_account.available_balance_at(Height(1)), Amount(0));
-    assert_eq!(
-        miner_account.available_balance_at(Height(1 + crate::ledger::CONFIRMATION_DEPTH as u64)),
-        Amount(TEST_FEE)
-    );
-    assert_eq!(
-        miner_account.available_balance_at(Height(1 + crate::ledger::BLOCK_REWARD_MATURITY as u64)),
-        Amount(50 + TEST_FEE)
-    );
-}
-
-#[test]
-fn accepts_zero_subsidy_when_supply_is_exhausted() {
-    let keypair = generate_keypair();
-    let sender = address_from_public_key(&keypair.public_key);
-    let receiver = address(2);
-    let miner = address(9);
-    let mut ledger = Ledger::new();
-    ledger
-        .create_account(sender, Amount(crate::consensus::supply::MAX_UNIT_SUPPLY))
-        .unwrap();
-    ledger.create_account(receiver, Amount(0)).unwrap();
-    ledger.create_account(miner, Amount(0)).unwrap();
-    ledger.apply_block(empty_genesis()).unwrap();
-
-    let transaction =
-        signed_transaction_from(&keypair.secret_key, keypair.public_key, receiver, 1, 0);
-    let mut block = Block::with_coinbase(
-        Height(1),
-        ledger.tip_hash().unwrap(),
-        miner,
-        crate::consensus::DIFFICULTY_START,
-        1_700_000_001,
-        Nonce(0),
-        Some(CoinbaseTransaction::new(miner, Amount(0), Amount(TEST_FEE))),
-        vec![transaction],
-    );
-    block.set_state_root(ledger.state_root_after_block(&block).unwrap());
-
-    assert_eq!(ledger.apply_block(block), Ok(()));
-    assert_eq!(
-        ledger.total_supply(),
-        Ok(Amount(crate::consensus::supply::MAX_UNIT_SUPPLY))
-    );
-    assert_eq!(ledger.balance(&miner), Some(Amount(TEST_FEE)));
 }
 
 #[test]

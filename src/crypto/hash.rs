@@ -6,6 +6,8 @@ use sha3::{Digest, Sha3_512};
 use static_assertions::const_assert_eq;
 use std::fmt;
 
+use crate::error::CryptoError;
+
 pub const HASH_SIZE: usize = 64;
 pub const PROOF_OF_WORK_HASH_SIZE: usize = 32;
 const_assert_eq!(HASH_SIZE, 64);
@@ -214,20 +216,20 @@ pub fn domain_hash(domain: HashDomain, bytes: &[u8]) -> Hash {
     Hash(hash)
 }
 
-pub fn argon2_proof_of_work_hash(header_bytes: &[u8]) -> Result<ProofOfWorkHash, ()> {
+pub fn argon2_proof_of_work_hash(header_bytes: &[u8]) -> Result<ProofOfWorkHash, CryptoError> {
     let params = Params::new(
         ARGON2_POW_MEMORY_KIB,
         ARGON2_POW_TIME_COST,
         ARGON2_POW_PARALLELISM,
         Some(ARGON2_POW_OUTPUT_LEN),
     )
-    .map_err(|_| ())?;
+    .map_err(|_| CryptoError::InvalidProofOfWorkParameters)?;
     let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
     let mut output = [0_u8; PROOF_OF_WORK_HASH_SIZE];
 
     argon2
         .hash_password_into(header_bytes, ARGON2_POW_SALT, &mut output)
-        .map_err(|_| ())?;
+        .map_err(|_| CryptoError::ProofOfWorkHashFailed)?;
 
     Ok(ProofOfWorkHash(output))
 }

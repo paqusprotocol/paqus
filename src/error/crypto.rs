@@ -6,6 +6,8 @@ pub enum CryptoError {
     InvalidAddressEncoding,
     InvalidPublicKey,
     InvalidSignatureEncoding,
+    InvalidProofOfWorkParameters,
+    ProofOfWorkHashFailed,
     VerificationFailed,
 }
 
@@ -17,6 +19,10 @@ impl fmt::Display for CryptoError {
             CryptoError::InvalidSignatureEncoding => {
                 f.write_str("signature bytes are not valid ML-DSA-87 encoding")
             }
+            CryptoError::InvalidProofOfWorkParameters => {
+                f.write_str("proof-of-work hash parameters are invalid")
+            }
+            CryptoError::ProofOfWorkHashFailed => f.write_str("proof-of-work hash failed"),
             CryptoError::VerificationFailed => f.write_str("signature verification failed"),
         }
     }

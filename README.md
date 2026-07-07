@@ -208,7 +208,7 @@ Chain linkage requires:
 Coinbase subsidy must equal:
 
 ```text
-min(block_reward(height), MAX_UNIT_SUPPLY - supply_after_fees_are_credited)
+block_reward(height)
 ```
 
 Coinbase fees must equal the checked sum of all transaction fees in the block.

@@ -1,7 +1,7 @@
 use crate::block::{Block, BlockError};
 use crate::block::{Height, Nonce};
 use crate::consensus::supply::Amount;
-use crate::consensus::supply::{BLOCK_REWARD, MAX_MINED_SUPPLY, MAX_UNIT_SUPPLY, TAIL_EMISSION};
+use crate::consensus::supply::{BLOCK_REWARD, TAIL_EMISSION};
 use crate::consensus::{
     BLOCK_TIME, Consensus, ConsensusConfig, ConsensusError, DIFFICULTY_ADJUSTMENT_INTERVAL,
     TAIL_EMISSION_START_HEIGHT, block_reward, tail_emission_start_height,
@@ -353,9 +353,4 @@ fn uses_block_reward_until_tail_emission_starts() {
         Amount(TAIL_EMISSION)
     );
     assert_eq!(tail_emission_start_height(), TAIL_EMISSION_START_HEIGHT);
-}
-
-#[test]
-fn mined_supply_matches_max_unit_supply_without_initial_allocation() {
-    assert_eq!(MAX_MINED_SUPPLY, MAX_UNIT_SUPPLY);
 }

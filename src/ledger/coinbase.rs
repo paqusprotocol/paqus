@@ -2,7 +2,6 @@ use crate::block::Block;
 use crate::block::BlockHeight;
 use crate::consensus::block_reward;
 use crate::consensus::supply::Amount;
-use crate::consensus::supply::MAX_MINED_SUPPLY;
 use crate::crypto::Address;
 use crate::ledger::{BLOCK_REWARD_MATURITY, CONFIRMATION_DEPTH, Ledger, LedgerError};
 use crate::state::{Account, CreditSource};
@@ -19,7 +18,7 @@ impl Ledger {
         }
 
         self.credit_miner_fees(coinbase.to, coinbase.fees, block.height())?;
-        let expected_subsidy = self.expected_mintable_subsidy(block_reward(block.height()))?;
+        let expected_subsidy = block_reward(block.height());
         if coinbase.subsidy != expected_subsidy {
             return Err(LedgerError::InvalidCoinbase);
         }
@@ -53,20 +52,8 @@ impl Ledger {
         )
     }
 
-    fn expected_mintable_subsidy(&self, scheduled_subsidy: Amount) -> Result<Amount, LedgerError> {
-        // Scheduled rewards may continue after the mined supply cap; actual minting cannot.
-        Ok(Amount(
-            scheduled_subsidy.0.min(self.remaining_mined_supply()?),
-        ))
-    }
-
-    pub fn mintable_subsidy(&self, height: BlockHeight) -> Result<Amount, LedgerError> {
-        self.expected_mintable_subsidy(block_reward(height))
-    }
-
-    pub fn remaining_mined_supply(&self) -> Result<u64, LedgerError> {
-        let total = self.total_supply()?.0;
-        Ok(MAX_MINED_SUPPLY.saturating_sub(total))
+    pub fn mintable_subsidy(&self, height: BlockHeight) -> Amount {
+        block_reward(height)
     }
 
     fn credit_miner(

@@ -1,6 +1,5 @@
 use crate::block::Block;
 use crate::block::BlockHeight;
-use crate::consensus::supply::MAX_UNIT_SUPPLY;
 use crate::consensus::supply::{Amount, Balance};
 use crate::crypto::Address;
 use crate::crypto::{BlockHash, HASH_SIZE, Hash, StateRoot};
@@ -79,9 +78,7 @@ impl Ledger {
     }
 
     pub fn validate_supply(&self) -> Result<(), LedgerError> {
-        if self.total_supply()?.0 > MAX_UNIT_SUPPLY {
-            return Err(LedgerError::SupplyOverflow);
-        }
+        self.total_supply()?;
         Ok(())
     }
 
