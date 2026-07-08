@@ -24,7 +24,7 @@ fn creates_empty_genesis_block() {
     let block = create_genesis_block(config());
 
     assert_eq!(block.height(), Height(0));
-    assert_eq!(block.previous_hash(), Hash([0; 64]));
+    assert_eq!(block.previous_hash(), Hash([0; crate::crypto::HASH_SIZE]));
     assert_eq!(block.transaction_count(), 0);
     assert_eq!(block.validate(), Ok(()));
 }

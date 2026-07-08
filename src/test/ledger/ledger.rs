@@ -22,7 +22,7 @@ fn miner() -> Address {
 fn empty_genesis() -> Block {
     Block::new(
         Height(0),
-        Hash([0; 64]),
+        Hash([0; crate::crypto::HASH_SIZE]),
         miner(),
         1_700_000_000,
         Nonce(0),
@@ -238,7 +238,7 @@ fn applies_genesis_block_and_tracks_tip() {
     ledger.create_account(miner(), Amount(0)).unwrap();
     let genesis = Block::new(
         Height(0),
-        Hash([0; 64]),
+        Hash([0; crate::crypto::HASH_SIZE]),
         miner(),
         1_700_000_000,
         Nonce(0),
@@ -317,7 +317,7 @@ fn rejects_non_genesis_first_block() {
 
     let block = Block::new(
         Height(1),
-        Hash([0; 64]),
+        Hash([0; crate::crypto::HASH_SIZE]),
         miner(),
         1_700_000_000,
         Nonce(0),
@@ -342,7 +342,7 @@ fn rejects_block_with_wrong_previous_hash() {
 
     let next = Block::new(
         Height(1),
-        Hash([9; 64]),
+        Hash([9; crate::crypto::HASH_SIZE]),
         miner(),
         1_700_000_010,
         Nonce(0),
@@ -410,7 +410,7 @@ fn rejects_block_with_wrong_state_root() {
         Nonce(0),
         vec![signed],
     );
-    block.set_state_root(Hash([7; 64]));
+    block.set_state_root(Hash([7; crate::crypto::HASH_SIZE]));
 
     assert_eq!(
         ledger.apply_block(block),

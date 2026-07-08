@@ -4,7 +4,7 @@ use bech32::primitives::decode::CheckedHrpstring;
 use bech32::{Bech32, Hrp};
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
-use sha3::{Digest, Sha3_512};
+use sha3::{Digest, Sha3_256};
 use static_assertions::const_assert_eq;
 
 pub const ADDRESS_SIZE: usize = 20;
@@ -51,9 +51,9 @@ pub fn try_address_from_public_key(public_key: &PublicKey) -> Result<Address, Cr
         return Err(CryptoError::InvalidPublicKey);
     }
 
-    let digest = Sha3_512::digest(public_key.0);
+    let digest = Sha3_256::digest(public_key.0);
     let mut address = [0_u8; 20];
-    address.copy_from_slice(&digest[44..64]);
+    address.copy_from_slice(&digest[12..32]);
     Ok(Address(address))
 }
 

@@ -31,7 +31,7 @@ fn signed_transaction(nonce: u64) -> SignedTransaction {
 
 fn block(height: u64, previous_hash: impl Into<PreviousHash>) -> Block {
     let previous_hash = previous_hash.into();
-    let transactions = if height == 0 && previous_hash == Hash([0; 64]) {
+    let transactions = if height == 0 && previous_hash == Hash([0; crate::crypto::HASH_SIZE]) {
         vec![]
     } else {
         vec![signed_transaction(height)]
@@ -82,7 +82,7 @@ fn validates_candidate_genesis_without_pow_when_difficulty_is_zero_for_test() {
     let consensus = Consensus {
         config: ConsensusConfig { difficulty: 0 },
     };
-    let genesis = block(0, Hash([0; 64]));
+    let genesis = block(0, Hash([0; crate::crypto::HASH_SIZE]));
 
     assert_eq!(consensus.validate_candidate_block(&genesis, None), Ok(()));
 }
@@ -92,7 +92,7 @@ fn rejects_non_genesis_first_block() {
     let consensus = Consensus {
         config: ConsensusConfig { difficulty: 0 },
     };
-    let first = block(1, Hash([0; 64]));
+    let first = block(1, Hash([0; crate::crypto::HASH_SIZE]));
 
     assert_eq!(
         consensus.validate_candidate_block(&first, None),
@@ -105,7 +105,7 @@ fn validates_next_block_linkage() {
     let consensus = Consensus {
         config: ConsensusConfig { difficulty: 0 },
     };
-    let genesis = block(0, Hash([0; 64]));
+    let genesis = block(0, Hash([0; crate::crypto::HASH_SIZE]));
     let next = block(1, genesis.hash());
 
     assert_eq!(
@@ -119,7 +119,7 @@ fn rejects_next_block_timestamp_earlier_than_tip() {
     let consensus = Consensus {
         config: ConsensusConfig { difficulty: 0 },
     };
-    let genesis = block(0, Hash([0; 64]));
+    let genesis = block(0, Hash([0; crate::crypto::HASH_SIZE]));
     let mut next = block(1, genesis.hash());
     next.header.timestamp = genesis.timestamp().saturating_sub(1);
 
@@ -134,7 +134,7 @@ fn rejects_next_block_timestamp_too_far_in_future() {
     let consensus = Consensus {
         config: ConsensusConfig { difficulty: 0 },
     };
-    let genesis = block(0, Hash([0; 64]));
+    let genesis = block(0, Hash([0; crate::crypto::HASH_SIZE]));
     let mut next = block(1, genesis.hash());
     let now = genesis.timestamp();
     next.header.timestamp = now + crate::consensus::MAX_FUTURE_TIME as u64 + 1;
@@ -150,10 +150,13 @@ fn rejects_wrong_previous_hash() {
     let consensus = Consensus {
         config: ConsensusConfig { difficulty: 0 },
     };
-    let next = block(1, Hash([9; 64]));
+    let next = block(1, Hash([9; crate::crypto::HASH_SIZE]));
 
     assert_eq!(
-        consensus.validate_candidate_block(&next, Some((Height(0), BlockHash([1; 64])))),
+        consensus.validate_candidate_block(
+            &next,
+            Some((Height(0), BlockHash([1; crate::crypto::HASH_SIZE])))
+        ),
         Err(ConsensusError::InvalidPreviousHash)
     );
 }
@@ -161,7 +164,7 @@ fn rejects_wrong_previous_hash() {
 #[test]
 fn rejects_block_difficulty_mismatch() {
     let consensus = Consensus::new(ConsensusConfig { difficulty: 2 }).unwrap();
-    let block = block(0, Hash([0; 64]));
+    let block = block(0, Hash([0; crate::crypto::HASH_SIZE]));
 
     assert_eq!(
         consensus.validate_proof_of_work(&block),
@@ -268,7 +271,7 @@ fn proof_of_work_hash_is_argon2_based_and_deterministic() {
     let consensus = Consensus {
         config: ConsensusConfig { difficulty: 0 },
     };
-    let block = block(0, Hash([0; 64]));
+    let block = block(0, Hash([0; crate::crypto::HASH_SIZE]));
 
     let hash = consensus.proof_of_work_hash(&block).unwrap();
 

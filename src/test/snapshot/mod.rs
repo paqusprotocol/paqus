@@ -7,27 +7,27 @@ use crate::snapshot::{is_snapshot_finalized, is_snapshot_height, snapshot_root};
 fn snapshot_root_is_deterministic_and_domain_separated() {
     let root = snapshot_root(
         Height(100),
-        BlockHash([1; 64]),
-        StateRoot([2; 64]),
-        Hash([3; 64]),
+        BlockHash([1; crate::crypto::HASH_SIZE]),
+        StateRoot([2; crate::crypto::HASH_SIZE]),
+        Hash([3; crate::crypto::HASH_SIZE]),
     );
 
     assert_eq!(
         root,
         snapshot_root(
             Height(100),
-            BlockHash([1; 64]),
-            StateRoot([2; 64]),
-            Hash([3; 64])
+            BlockHash([1; crate::crypto::HASH_SIZE]),
+            StateRoot([2; crate::crypto::HASH_SIZE]),
+            Hash([3; crate::crypto::HASH_SIZE])
         )
     );
     assert_ne!(
         root,
         snapshot_root(
             Height(101),
-            BlockHash([1; 64]),
-            StateRoot([2; 64]),
-            Hash([3; 64])
+            BlockHash([1; crate::crypto::HASH_SIZE]),
+            StateRoot([2; crate::crypto::HASH_SIZE]),
+            Hash([3; crate::crypto::HASH_SIZE])
         )
     );
 }

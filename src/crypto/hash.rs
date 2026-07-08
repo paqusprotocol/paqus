@@ -2,15 +2,15 @@ use argon2::{Algorithm, Argon2, Params, Version};
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::de::{Error as DeError, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use sha3::{Digest, Sha3_512};
+use sha3::{Digest, Sha3_256};
 use static_assertions::const_assert_eq;
 use std::fmt;
 
 use crate::error::CryptoError;
 
-pub const HASH_SIZE: usize = 64;
+pub const HASH_SIZE: usize = 32;
 pub const PROOF_OF_WORK_HASH_SIZE: usize = 32;
-const_assert_eq!(HASH_SIZE, 64);
+const_assert_eq!(HASH_SIZE, 32);
 const_assert_eq!(PROOF_OF_WORK_HASH_SIZE, 32);
 
 pub const SNAPSHOT_ROOT_DOMAIN: &[u8] = b"PAQUS_SNAPSHOT_ROOT_V1";
@@ -206,7 +206,7 @@ pub fn hash_bytes(bytes: &[u8]) -> Hash {
 }
 
 pub fn domain_hash(domain: HashDomain, bytes: &[u8]) -> Hash {
-    let mut hasher = Sha3_512::new();
+    let mut hasher = Sha3_256::new();
     hasher.update(domain.tag());
     hasher.update((bytes.len() as u64).to_le_bytes());
     hasher.update(bytes);

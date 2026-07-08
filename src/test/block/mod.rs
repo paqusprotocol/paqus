@@ -32,7 +32,7 @@ fn miner() -> Address {
 fn validates_block_with_matching_merkle_root() {
     let block = Block::new(
         Height(1),
-        Hash([0; 64]),
+        Hash([0; crate::crypto::HASH_SIZE]),
         miner(),
         1_700_000_000,
         Nonce(42),
@@ -47,7 +47,7 @@ fn validates_block_with_matching_merkle_root() {
 fn rejects_unsupported_block_version() {
     let mut block = Block::new(
         Height(1),
-        Hash([0; 64]),
+        Hash([0; crate::crypto::HASH_SIZE]),
         miner(),
         1_700_000_000,
         Nonce(42),
@@ -62,7 +62,7 @@ fn rejects_unsupported_block_version() {
 fn validates_coinbase_only_blocks() {
     let block = Block::new(
         Height(1),
-        Hash([0; 64]),
+        Hash([0; crate::crypto::HASH_SIZE]),
         miner(),
         1_700_000_000,
         Nonce(42),
@@ -77,7 +77,7 @@ fn validates_coinbase_only_blocks() {
 fn allows_empty_genesis_block() {
     let block = Block::new(
         Height(0),
-        Hash([0; 64]),
+        Hash([0; crate::crypto::HASH_SIZE]),
         miner(),
         1_700_000_000,
         Nonce(0),
@@ -85,20 +85,23 @@ fn allows_empty_genesis_block() {
     );
 
     assert_eq!(block.validate(), Ok(()));
-    assert_eq!(block.calculate_merkle_root(), Hash([0; 64]));
+    assert_eq!(
+        block.calculate_merkle_root(),
+        Hash([0; crate::crypto::HASH_SIZE])
+    );
 }
 
 #[test]
 fn rejects_tampered_merkle_root() {
     let mut block = Block::new(
         Height(1),
-        Hash([0; 64]),
+        Hash([0; crate::crypto::HASH_SIZE]),
         miner(),
         1_700_000_000,
         Nonce(42),
         vec![signed_transaction(1)],
     );
-    block.header.merkle_root = Hash([9; 64]).into();
+    block.header.merkle_root = Hash([9; crate::crypto::HASH_SIZE]).into();
 
     assert_eq!(block.validate(), Err(BlockError::InvalidMerkleRoot));
 }
@@ -109,7 +112,7 @@ fn rejects_transaction_with_invalid_signature() {
     transaction.witness.signature.0[0] ^= 0xff;
     let block = Block::new(
         Height(1),
-        Hash([0; 64]),
+        Hash([0; crate::crypto::HASH_SIZE]),
         miner(),
         1_700_000_000,
         Nonce(42),
@@ -123,7 +126,7 @@ fn rejects_transaction_with_invalid_signature() {
 fn refreshes_merkle_root_after_push() {
     let mut block = Block::new(
         Height(1),
-        Hash([0; 64]),
+        Hash([0; crate::crypto::HASH_SIZE]),
         miner(),
         1_700_000_000,
         Nonce(42),
@@ -142,7 +145,7 @@ fn refreshes_merkle_root_after_push() {
 fn rejects_future_timestamp() {
     let block = Block::new(
         Height(1),
-        Hash([0; 64]),
+        Hash([0; crate::crypto::HASH_SIZE]),
         miner(),
         1_700_000_000 + MAX_FUTURE_TIME as u64 + 1,
         Nonce(42),
@@ -159,7 +162,7 @@ fn rejects_future_timestamp() {
 fn reports_miner_revenue_from_subsidy_and_fees() {
     let block = Block::new(
         Height(1),
-        Hash([0; 64]),
+        Hash([0; crate::crypto::HASH_SIZE]),
         miner(),
         1_700_000_000,
         Nonce(42),
@@ -189,7 +192,7 @@ fn rejects_fee_overflow() {
     );
     let block = Block::new(
         Height(1),
-        Hash([1; 64]),
+        Hash([1; crate::crypto::HASH_SIZE]),
         miner(),
         1_700_000_000,
         Nonce(0),

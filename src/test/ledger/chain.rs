@@ -45,7 +45,7 @@ fn block_at(height: u64, previous_hash: impl Into<PreviousHash>, timestamp: u64)
 #[test]
 fn inserts_genesis_and_tracks_tip() {
     let mut chain = Chain::new();
-    let genesis = block(0, Hash([0; 64]));
+    let genesis = block(0, Hash([0; crate::crypto::HASH_SIZE]));
     let genesis_hash = genesis.hash();
 
     assert_eq!(chain.insert_block(genesis), Ok(()));
@@ -57,10 +57,12 @@ fn inserts_genesis_and_tracks_tip() {
 #[test]
 fn rejects_duplicate_height() {
     let mut chain = Chain::new();
-    chain.insert_block(block(0, Hash([0; 64]))).unwrap();
+    chain
+        .insert_block(block(0, Hash([0; crate::crypto::HASH_SIZE])))
+        .unwrap();
 
     assert_eq!(
-        chain.insert_block(block(0, Hash([0; 64]))),
+        chain.insert_block(block(0, Hash([0; crate::crypto::HASH_SIZE]))),
         Err(LedgerError::DuplicateBlock)
     );
 }
@@ -68,10 +70,12 @@ fn rejects_duplicate_height() {
 #[test]
 fn rejects_wrong_link() {
     let mut chain = Chain::new();
-    chain.insert_block(block(0, Hash([0; 64]))).unwrap();
+    chain
+        .insert_block(block(0, Hash([0; crate::crypto::HASH_SIZE])))
+        .unwrap();
 
     assert_eq!(
-        chain.insert_block(block(1, Hash([9; 64]))),
+        chain.insert_block(block(1, Hash([9; crate::crypto::HASH_SIZE]))),
         Err(LedgerError::InvalidParent)
     );
 }
@@ -79,7 +83,7 @@ fn rejects_wrong_link() {
 #[test]
 fn rejects_timestamp_earlier_than_tip() {
     let mut chain = Chain::new();
-    let genesis = block_at(0, Hash([0; 64]), 1_700_000_010);
+    let genesis = block_at(0, Hash([0; crate::crypto::HASH_SIZE]), 1_700_000_010);
     let genesis_hash = genesis.hash();
     chain.insert_block(genesis).unwrap();
 

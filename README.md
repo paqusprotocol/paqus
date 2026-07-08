@@ -23,7 +23,7 @@ use a similar name, mark, or terminology.
 
 ## Main Modules
 
-- `codec`: canonical Borsh encoding, decode validation, and domain-separated SHA3-512 hashing.
+- `codec`: canonical Borsh encoding, decode validation, and domain-separated SHA3-256 hashing.
 - `crypto`: ML-DSA-87 keys, signatures, verification, Bech32 addresses, and hashing.
 - `transaction`: transaction payloads, witnesses, signed transactions, and transaction validation.
 - `block`: block headers, blocks, coinbase, merkle roots, and block validation.
@@ -48,8 +48,8 @@ uses them:
 ## Units And Supply
 
 - Smallest unit: `paqus`.
-- `1 XPQ = 100_000_000 paqus`.
-- Total supply cap: `42_000_000 XPQ` (`4_200_000_000_000_000 paqus`).
+- `1 XPQ = 1_000_000 paqus`.
+- Total supply cap: `42_000_000 XPQ` (`42_000_000_000_000 paqus`).
 - Amounts, balances, and fees use `u64` units.
 - Genesis has no premine allocation.
 - New subsidy minting must never push total supply above the cap.
@@ -76,9 +76,9 @@ DIFFICULTY_ADJUSTMENT_INTERVAL = 2016 blocks
 CONFIRMATION_DEPTH = 10 blocks
 BLOCK_REWARD_MATURITY = 120 blocks
 FINALITY_DEPTH = 100 blocks
-DECIMALS = 8
-BLOCK_REWARD = 5_000_000_000 paqus
-TAIL_EMISSION = 100_000_000 paqus
+DECIMALS = 6
+BLOCK_REWARD = 100_000_000 paqus
+TAIL_EMISSION = 1_000_000 paqus
 TAIL_EMISSION_START_HEIGHT = 420_480
 SNAPSHOT_INTERVAL = 50_000 blocks
 ARGON2_POW_MEMORY = 512 MiB
@@ -277,7 +277,7 @@ fn inspect(block: &Block, tx: &SignedTransaction) {
 
 let _genesis_like = Block::new(
     Height(0),
-    Hash([0; 64]),
+    Hash([0; paqus::crypto::HASH_SIZE]),
     Address([0; 20]),
     1_700_000_000,
     Nonce(0),
@@ -386,7 +386,7 @@ let _genesis_like = Block::new(
 
 - Initial Paqus core crate.
 - Added block and transaction primitives.
-- Added SHA3-512 hashing and Argon2 proof-of-work hashing.
+- Added SHA3-256 hashing and Argon2 proof-of-work hashing.
 - Added ML-DSA-87 wallet keys, signatures, and transaction signing.
 - Added address derivation, ledger state, genesis helpers, consensus validation, fork choice, reorg handling, and state proofs.
 

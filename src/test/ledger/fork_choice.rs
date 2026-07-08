@@ -30,7 +30,7 @@ fn rejects_block_when_parent_is_missing() {
     let mut fork_choice = ForkChoice::new();
 
     assert_eq!(
-        fork_choice.insert_block(block(1, Hash([9; 64]), 1, 0)),
+        fork_choice.insert_block(block(1, Hash([9; crate::crypto::HASH_SIZE]), 1, 0)),
         Err(ForkChoiceError::MissingParent)
     );
 }
@@ -40,7 +40,7 @@ fn rejects_block_with_invalid_difficulty() {
     let mut fork_choice = ForkChoice::new();
 
     assert_eq!(
-        fork_choice.insert_block(block(0, Hash([0; 64]), 0, 0)),
+        fork_choice.insert_block(block(0, Hash([0; crate::crypto::HASH_SIZE]), 0, 0)),
         Err(ForkChoiceError::InvalidDifficulty)
     );
     assert!(fork_choice.is_empty());
@@ -52,7 +52,7 @@ fn accepts_block_with_difficulty_above_pow_hash_bit_width() {
 
     assert!(
         fork_choice
-            .insert_block(block(0, Hash([0; 64]), u32::MAX, 1))
+            .insert_block(block(0, Hash([0; crate::crypto::HASH_SIZE]), u32::MAX, 1))
             .is_ok()
     );
 }
@@ -60,7 +60,7 @@ fn accepts_block_with_difficulty_above_pow_hash_bit_width() {
 #[test]
 fn chooses_tip_with_highest_cumulative_work() {
     let mut fork_choice = ForkChoice::new();
-    let genesis = block(0, Hash([0; 64]), 1, 0);
+    let genesis = block(0, Hash([0; crate::crypto::HASH_SIZE]), 1, 0);
     let genesis_hash = fork_choice.insert_block(genesis).unwrap();
     let low_work = block(1, genesis_hash, 1, 1);
     let high_work = block(1, genesis_hash, 3, 2);
@@ -77,7 +77,7 @@ fn chooses_tip_with_highest_cumulative_work() {
 #[test]
 fn chooses_lowest_hash_when_cumulative_work_ties() {
     let mut fork_choice = ForkChoice::new();
-    let genesis = block(0, Hash([0; 64]), 1, 0);
+    let genesis = block(0, Hash([0; crate::crypto::HASH_SIZE]), 1, 0);
     let genesis_hash = fork_choice.insert_block(genesis).unwrap();
     let first = block(1, genesis_hash, 1, 1);
     let second = block(1, genesis_hash, 1, 2);
