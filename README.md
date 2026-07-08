@@ -49,7 +49,6 @@ uses them:
 
 - Smallest unit: `paqus`.
 - `1 XPQ = 1_000_000 paqus`.
-- Total supply cap: `42_000_000 XPQ` (`42_000_000_000_000 paqus`).
 - Amounts, balances, and fees use `u64` units.
 - Genesis has no premine allocation.
 - New subsidy minting must never push total supply above the cap.
@@ -79,7 +78,7 @@ FINALITY_DEPTH = 100 blocks
 DECIMALS = 6
 BLOCK_REWARD = 100_000_000 paqus
 TAIL_EMISSION = 1_000_000 paqus
-TAIL_EMISSION_START_HEIGHT = 420_480
+TAIL_EMISSION_START_HEIGHT = 525_600
 SNAPSHOT_INTERVAL = 50_000 blocks
 ARGON2_POW_MEMORY = 512 MiB
 ARGON2_POW_TIME_COST = 2
