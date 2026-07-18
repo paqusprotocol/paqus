@@ -3,7 +3,7 @@ use crate::block::{Height, Nonce};
 use crate::consensus::supply::Amount;
 use crate::consensus::supply::{BLOCK_REWARD, TAIL_EMISSION};
 use crate::consensus::{
-    BLOCK_TIME, Consensus, ConsensusConfig, ConsensusError, DIFFICULTY_ADJUSTMENT_INTERVAL,
+    ASERT_HALF_LIFE, BLOCK_TIME, Consensus, ConsensusConfig, ConsensusError,
     TAIL_EMISSION_START_HEIGHT, block_reward, tail_emission_start_height,
 };
 use crate::crypto::Address;
@@ -175,79 +175,17 @@ fn rejects_block_difficulty_mismatch() {
 #[test]
 fn checks_proof_of_work_zero_bit_difficulty() {
     let consensus = Consensus::new(ConsensusConfig { difficulty: 9 }).unwrap();
+    let mut valid = [0_u8; crate::crypto::PROOF_OF_WORK_HASH_SIZE];
+    valid[1] = 0b0111_1111;
+    let mut invalid = valid;
+    invalid[1] = 0b1000_0000;
 
     assert_eq!(
-        consensus.validate_proof_of_work_hash(&ProofOfWorkHash([
-            0,
-            0b0111_1111,
-            1,
-            2,
-            3,
-            4,
-            5,
-            6,
-            7,
-            8,
-            9,
-            10,
-            11,
-            12,
-            13,
-            14,
-            15,
-            16,
-            17,
-            18,
-            19,
-            20,
-            21,
-            22,
-            23,
-            24,
-            25,
-            26,
-            27,
-            28,
-            29,
-            30
-        ])),
+        consensus.validate_proof_of_work_hash(&ProofOfWorkHash(valid)),
         Ok(())
     );
     assert_eq!(
-        consensus.validate_proof_of_work_hash(&ProofOfWorkHash([
-            0,
-            0b1000_0000,
-            1,
-            2,
-            3,
-            4,
-            5,
-            6,
-            7,
-            8,
-            9,
-            10,
-            11,
-            12,
-            13,
-            14,
-            15,
-            16,
-            17,
-            18,
-            19,
-            20,
-            21,
-            22,
-            23,
-            24,
-            25,
-            26,
-            27,
-            28,
-            29,
-            30
-        ])),
+        consensus.validate_proof_of_work_hash(&ProofOfWorkHash(invalid)),
         Err(ConsensusError::InsufficientProofOfWork)
     );
 }
@@ -257,17 +195,17 @@ fn treats_difficulty_above_hash_bit_width_as_unmet_pow() {
     let consensus = Consensus::with_default_config();
 
     assert_eq!(
-        consensus.validate_proof_of_work_hash_with_difficulty(&ProofOfWorkHash([0; 32]), 256),
+        consensus.validate_proof_of_work_hash_with_difficulty(&ProofOfWorkHash([0; 64]), 512),
         Ok(())
     );
     assert_eq!(
-        consensus.validate_proof_of_work_hash_with_difficulty(&ProofOfWorkHash([0; 32]), 257),
+        consensus.validate_proof_of_work_hash_with_difficulty(&ProofOfWorkHash([0; 64]), 513),
         Err(ConsensusError::InsufficientProofOfWork)
     );
 }
 
 #[test]
-fn proof_of_work_hash_is_argon2_based_and_deterministic() {
+fn proof_of_work_hash_is_sha3_512_based_and_deterministic() {
     let consensus = Consensus {
         config: ConsensusConfig { difficulty: 0 },
     };
@@ -275,72 +213,55 @@ fn proof_of_work_hash_is_argon2_based_and_deterministic() {
 
     let hash = consensus.proof_of_work_hash(&block).unwrap();
 
-    assert_eq!(hash.0.len(), 32);
+    assert_eq!(hash.0.len(), 64);
     assert_eq!(hash, consensus.proof_of_work_hash(&block).unwrap());
     assert_ne!(hash.0.as_slice(), block.hash().0.as_slice());
     assert_eq!(consensus.validate_proof_of_work(&block), Ok(()));
 }
 
 #[test]
-fn retargets_difficulty_from_block_timespan() {
+fn asert_keeps_difficulty_on_schedule() {
     let consensus = Consensus::with_default_config();
-    let target_timespan = BLOCK_TIME as u64 * DIFFICULTY_ADJUSTMENT_INTERVAL;
+    let blocks = ASERT_HALF_LIFE / BLOCK_TIME as u64;
 
     assert_eq!(
-        consensus.retarget_difficulty(2, 0, target_timespan / 2, DIFFICULTY_ADJUSTMENT_INTERVAL),
-        Ok(3)
-    );
-    assert_eq!(
-        consensus.retarget_difficulty(2, 0, target_timespan * 2, DIFFICULTY_ADJUSTMENT_INTERVAL),
-        Ok(1)
-    );
-    assert_eq!(
-        consensus.retarget_difficulty(2, 0, target_timespan, DIFFICULTY_ADJUSTMENT_INTERVAL),
-        Ok(2)
-    );
-    assert_eq!(consensus.retarget_difficulty(2, 0, 10, 9), Ok(2));
-}
-
-#[test]
-fn retargets_difficulty_by_multiple_bits_for_large_hashrate_swings() {
-    let consensus = Consensus::with_default_config();
-    let target_timespan = BLOCK_TIME as u64 * DIFFICULTY_ADJUSTMENT_INTERVAL;
-
-    assert_eq!(
-        consensus.retarget_difficulty(10, 0, target_timespan / 4, DIFFICULTY_ADJUSTMENT_INTERVAL),
-        Ok(12)
-    );
-    assert_eq!(
-        consensus.retarget_difficulty(10, 0, target_timespan / 16, DIFFICULTY_ADJUSTMENT_INTERVAL),
-        Ok(14)
-    );
-    assert_eq!(
-        consensus.retarget_difficulty(10, 0, target_timespan * 4, DIFFICULTY_ADJUSTMENT_INTERVAL),
-        Ok(8)
-    );
-    assert_eq!(
-        consensus.retarget_difficulty(10, 0, target_timespan * 16, DIFFICULTY_ADJUSTMENT_INTERVAL),
-        Ok(6)
-    );
-}
-
-#[test]
-fn retarget_difficulty_clamps_only_to_minimum() {
-    let consensus = Consensus::with_default_config();
-    let target_timespan = BLOCK_TIME as u64 * DIFFICULTY_ADJUSTMENT_INTERVAL;
-
-    assert_eq!(
-        consensus.retarget_difficulty(
-            u32::MAX - 1,
-            0,
-            target_timespan / 16,
-            DIFFICULTY_ADJUSTMENT_INTERVAL
+        consensus.asert_difficulty(
+            10,
+            1_700_000_000,
+            Height(0),
+            1_700_000_000 + ASERT_HALF_LIFE,
+            Height(blocks),
         ),
-        Ok(u32::MAX)
+        Ok(10)
+    );
+}
+
+#[test]
+fn asert_adjusts_from_anchor_for_hashrate_swings() {
+    let consensus = Consensus::with_default_config();
+    let blocks = ASERT_HALF_LIFE / BLOCK_TIME as u64;
+
+    assert_eq!(
+        consensus.asert_difficulty(10, 0, Height(0), 0, Height(blocks)),
+        Ok(11)
     );
     assert_eq!(
-        consensus.retarget_difficulty(2, 0, target_timespan * 16, DIFFICULTY_ADJUSTMENT_INTERVAL),
+        consensus.asert_difficulty(10, 0, Height(0), ASERT_HALF_LIFE * 2, Height(blocks),),
+        Ok(9)
+    );
+}
+
+#[test]
+fn asert_clamps_to_minimum_and_rejects_invalid_anchor() {
+    let consensus = Consensus::with_default_config();
+
+    assert_eq!(
+        consensus.asert_difficulty(1, 0, Height(0), ASERT_HALF_LIFE * 10, Height(1)),
         Ok(crate::consensus::MIN_DIFFICULTY)
+    );
+    assert_eq!(
+        consensus.asert_difficulty(0, 0, Height(0), 0, Height(0)),
+        Err(ConsensusError::InvalidDifficulty)
     );
 }
 

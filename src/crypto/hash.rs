@@ -1,25 +1,16 @@
-use argon2::{Algorithm, Argon2, Params, Version};
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::de::{Error as DeError, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use sha3::{Digest, Sha3_256};
+use sha3::{Digest, Sha3_256, Sha3_512};
 use static_assertions::const_assert_eq;
 use std::fmt;
 
-use crate::error::CryptoError;
-
 pub const HASH_SIZE: usize = 32;
-pub const PROOF_OF_WORK_HASH_SIZE: usize = 32;
+pub const PROOF_OF_WORK_HASH_SIZE: usize = 64;
 const_assert_eq!(HASH_SIZE, 32);
-const_assert_eq!(PROOF_OF_WORK_HASH_SIZE, 32);
+const_assert_eq!(PROOF_OF_WORK_HASH_SIZE, 64);
 
 pub const SNAPSHOT_ROOT_DOMAIN: &[u8] = b"PAQUS_SNAPSHOT_ROOT_V1";
-
-const ARGON2_POW_SALT: &[u8] = b"paquscore-proof-of-work";
-const ARGON2_POW_MEMORY_KIB: u32 = 512 * 1024; // 512MiB
-const ARGON2_POW_TIME_COST: u32 = 2;
-const ARGON2_POW_PARALLELISM: u32 = 2;
-const ARGON2_POW_OUTPUT_LEN: usize = 32;
 
 pub type HashBytes = [u8; HASH_SIZE];
 pub type ProofOfWorkHashBytes = [u8; PROOF_OF_WORK_HASH_SIZE];
@@ -81,20 +72,63 @@ impl<'de> Deserialize<'de> for Hash {
 }
 
 #[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Hash,
-    Serialize,
-    Deserialize,
-    BorshSerialize,
-    BorshDeserialize,
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, BorshSerialize, BorshDeserialize,
 )]
 pub struct ProofOfWorkHash(pub ProofOfWorkHashBytes);
+
+impl Serialize for ProofOfWorkHash {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_bytes(&self.0)
+    }
+}
+
+impl<'de> Deserialize<'de> for ProofOfWorkHash {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct ProofOfWorkHashVisitor;
+
+        impl<'de> Visitor<'de> for ProofOfWorkHashVisitor {
+            type Value = ProofOfWorkHash;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(
+                    formatter,
+                    "{PROOF_OF_WORK_HASH_SIZE} proof-of-work hash bytes"
+                )
+            }
+
+            fn visit_bytes<E>(self, value: &[u8]) -> Result<Self::Value, E>
+            where
+                E: DeError,
+            {
+                let bytes: ProofOfWorkHashBytes = value
+                    .try_into()
+                    .map_err(|_| E::invalid_length(value.len(), &self))?;
+                Ok(ProofOfWorkHash(bytes))
+            }
+
+            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+            where
+                A: serde::de::SeqAccess<'de>,
+            {
+                let mut bytes = [0_u8; PROOF_OF_WORK_HASH_SIZE];
+                for (index, byte) in bytes.iter_mut().enumerate() {
+                    *byte = seq
+                        .next_element()?
+                        .ok_or_else(|| DeError::invalid_length(index, &self))?;
+                }
+                Ok(ProofOfWorkHash(bytes))
+            }
+        }
+
+        deserializer.deserialize_bytes(ProofOfWorkHashVisitor)
+    }
+}
 
 macro_rules! hash_newtype {
     ($name:ident) => {
@@ -107,6 +141,8 @@ macro_rules! hash_newtype {
             PartialOrd,
             Ord,
             Hash,
+            Serialize,
+            Deserialize,
             BorshSerialize,
             BorshDeserialize,
         )]
@@ -148,7 +184,9 @@ macro_rules! hash_newtype {
 
 hash_newtype!(BlockHash);
 hash_newtype!(TransactionHash);
+hash_newtype!(WitnessTransactionHash);
 hash_newtype!(MerkleHash);
+hash_newtype!(WitnessMerkleHash);
 hash_newtype!(StateRoot);
 hash_newtype!(PreviousHash);
 
@@ -173,14 +211,21 @@ impl PartialEq<PreviousHash> for BlockHash {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HashDomain {
     Transaction,
-    SignedTransaction,
+    WitnessTransaction,
     BlockHeader,
     GenesisAllocation,
     Coinbase,
     MerkleNode,
+    WitnessMerkleNode,
     AccountState,
     StateNode,
     SnapshotRoot,
+    EcashCoin,
+    EcashCommitment,
+    EcashFile,
+    EcashState,
+    ProtocolEvent,
+    ProtocolState,
     Raw,
 }
 
@@ -188,14 +233,21 @@ impl HashDomain {
     fn tag(self) -> &'static [u8] {
         match self {
             HashDomain::Transaction => b"PAQUS_HASH_TX",
-            HashDomain::SignedTransaction => b"PAQUS_HASH_SIGNED_TX",
+            HashDomain::WitnessTransaction => b"PAQUS_HASH_WITNESS_TX_V1",
             HashDomain::BlockHeader => b"PAQUS_HASH_BLOCK_HEADER",
             HashDomain::GenesisAllocation => b"PAQUS_HASH_GENESIS_ALLOCATION",
             HashDomain::Coinbase => b"PAQUS_HASH_COINBASE",
             HashDomain::MerkleNode => b"PAQUS_HASH_MERKLE_NODE",
+            HashDomain::WitnessMerkleNode => b"PAQUS_HASH_WITNESS_MERKLE_NODE_V1",
             HashDomain::AccountState => b"PAQUS_HASH_ACCOUNT_STATE",
             HashDomain::StateNode => b"PAQUS_HASH_STATE_NODE",
             HashDomain::SnapshotRoot => SNAPSHOT_ROOT_DOMAIN,
+            HashDomain::EcashCoin => b"PAQUS_HASH_ECASH_COIN_V1",
+            HashDomain::EcashCommitment => b"PAQUS_HASH_ECASH_COMMITMENT_V1",
+            HashDomain::EcashFile => b"PAQUS_HASH_ECASH_FILE_V1",
+            HashDomain::EcashState => b"PAQUS_HASH_ECASH_STATE_V1",
+            HashDomain::ProtocolEvent => b"PAQUS_HASH_PROTOCOL_EVENT_V1",
+            HashDomain::ProtocolState => b"PAQUS_HASH_PROTOCOL_STATE_V1",
             HashDomain::Raw => b"PAQUS_HASH_RAW",
         }
     }
@@ -216,22 +268,11 @@ pub fn domain_hash(domain: HashDomain, bytes: &[u8]) -> Hash {
     Hash(hash)
 }
 
-pub fn argon2_proof_of_work_hash(header_bytes: &[u8]) -> Result<ProofOfWorkHash, CryptoError> {
-    let params = Params::new(
-        ARGON2_POW_MEMORY_KIB,
-        ARGON2_POW_TIME_COST,
-        ARGON2_POW_PARALLELISM,
-        Some(ARGON2_POW_OUTPUT_LEN),
-    )
-    .map_err(|_| CryptoError::InvalidProofOfWorkParameters)?;
-    let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
+pub fn sha3_512_proof_of_work_hash(header_bytes: &[u8]) -> ProofOfWorkHash {
+    let digest = Sha3_512::digest(header_bytes);
     let mut output = [0_u8; PROOF_OF_WORK_HASH_SIZE];
-
-    argon2
-        .hash_password_into(header_bytes, ARGON2_POW_SALT, &mut output)
-        .map_err(|_| CryptoError::ProofOfWorkHashFailed)?;
-
-    Ok(ProofOfWorkHash(output))
+    output.copy_from_slice(&digest);
+    ProofOfWorkHash(output)
 }
 
 pub fn hash_meets_difficulty(hash: &ProofOfWorkHash, difficulty: u32) -> bool {

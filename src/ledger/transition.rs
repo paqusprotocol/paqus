@@ -3,9 +3,10 @@ use crate::block::BlockHeight;
 use crate::consensus::supply::Amount;
 use crate::crypto::Address;
 use crate::crypto::{BlockHash, StateRoot, TransactionHash};
-use crate::ledger::{CONFIRMATION_DEPTH, Ledger, LedgerError, SparseStateTree};
+use crate::event::{ProtocolEvent, ProtocolEventKind};
+use crate::ledger::{CONFIRMATION_DEPTH, Ledger, LedgerError};
 use crate::state::Account;
-use crate::transaction::{SignedTransaction, Transaction};
+use crate::transaction::{EcashTransactionKind, SignedTransaction, Transaction};
 use std::collections::BTreeMap;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -47,6 +48,7 @@ pub(crate) fn apply_transaction_to_state(
     transaction: &Transaction,
     height: BlockHeight,
 ) -> Result<(), LedgerError> {
+    transaction.validate_for_height(height)?;
     if !accounts.contains_key(&transaction.from) {
         return Err(LedgerError::AccountNotFound);
     }
@@ -88,37 +90,107 @@ pub fn validate_signed_transaction_against_state(
 }
 
 impl Ledger {
+    pub fn events_for_block(&self, block_hash: &BlockHash) -> &[ProtocolEvent] {
+        self.events_by_block
+            .get(block_hash)
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+    }
+
+    pub fn event(&self, id: crate::event::EventId) -> Option<&ProtocolEvent> {
+        self.events_by_block
+            .values()
+            .flatten()
+            .find(|event| event.id() == id)
+    }
+
+    pub(crate) fn record_protocol_events(&mut self, block: &Block) {
+        let height = block.height();
+        let block_hash = block.hash();
+        let mut events = Vec::with_capacity(
+            block.transaction_count()
+                + block.genesis_allocations.len()
+                + usize::from(!block.is_genesis()),
+        );
+        let mut emit = |transaction_hash, kind| {
+            let event_index = u32::try_from(events.len())
+                .expect("a valid block cannot contain more than u32::MAX events");
+            events.push(ProtocolEvent::new(
+                height,
+                block_hash,
+                transaction_hash,
+                event_index,
+                kind,
+            ));
+        };
+
+        for signed in &block.transactions {
+            let tx = &signed.transaction;
+            emit(
+                Some(tx.hash()),
+                ProtocolEventKind::Transfer {
+                    from: tx.from,
+                    to: tx.to,
+                    amount: tx.amount,
+                    fee: tx.fee,
+                },
+            );
+        }
+        for signed in &block.ecash_transactions {
+            let tx = &signed.transaction;
+            let kind = match &tx.kind {
+                EcashTransactionKind::WithdrawCash { amount, .. } => {
+                    ProtocolEventKind::EcashWithdrawn {
+                        signer: tx.signer,
+                        amount: *amount,
+                    }
+                }
+                EcashTransactionKind::DepositCash {
+                    recipient,
+                    metadata,
+                } => ProtocolEventKind::EcashDeposited {
+                    signer: tx.signer,
+                    recipient: *recipient,
+                    amount: metadata
+                        .amount()
+                        .expect("an applied eCash deposit has a valid amount"),
+                },
+            };
+            emit(Some(tx.hash()), kind);
+        }
+        if block.is_genesis() {
+            for allocation in &block.genesis_allocations {
+                emit(
+                    None,
+                    ProtocolEventKind::GenesisAllocation {
+                        recipient: allocation.to,
+                        amount: allocation.amount,
+                    },
+                );
+            }
+        } else if let Some(coinbase) = &block.coinbase {
+            emit(
+                None,
+                ProtocolEventKind::CoinbasePaid {
+                    miner: coinbase.to,
+                    subsidy: coinbase.subsidy,
+                    fees: coinbase.fees,
+                },
+            );
+        }
+
+        self.events_by_block.insert(block_hash, events);
+    }
+
     pub(crate) fn apply_transaction_at(
         &mut self,
         transaction: &Transaction,
         height: BlockHeight,
     ) -> Result<(), LedgerError> {
-        apply_transaction_to_state(&mut self.accounts, transaction, height)
-    }
-
-    pub(crate) fn staged_after_block(&self, block: &Block) -> Result<Self, LedgerError> {
-        block.validate()?;
-        self.staged_after_valid_signed_block(block)
-    }
-
-    pub(crate) fn staged_after_valid_signed_block(
-        &self,
-        block: &Block,
-    ) -> Result<Self, LedgerError> {
-        let mut staged = self.clone();
-        for transaction in &block.transactions {
-            staged.apply_transaction_at(&transaction.transaction, block.height())?;
-        }
-
-        if block.is_genesis() {
-            for allocation in &block.genesis_allocations {
-                staged.create_account(allocation.to, allocation.amount)?;
-            }
-            return Ok(staged);
-        }
-
-        staged.apply_coinbase(block)?;
-        Ok(staged)
+        apply_transaction_to_state(&mut self.accounts, transaction, height)?;
+        self.refresh_account_state(&transaction.from);
+        self.refresh_account_state(&transaction.to);
+        Ok(())
     }
 
     pub fn validate_transaction_against_state(
@@ -150,6 +222,7 @@ impl Ledger {
             committed_block.set_state_root(expected_state_root);
         }
         let block_hash = committed_block.hash();
+        staged.record_protocol_events(&committed_block);
         staged.chain.insert_block(committed_block)?;
 
         let execution = BlockExecution {
@@ -175,34 +248,36 @@ impl Ledger {
         self.chain.validate_next_block(block)?;
 
         let mut staged = self.clone();
-        let mut state_tree = SparseStateTree::from_accounts(&staged.accounts);
 
         for transaction in &block.transactions {
             staged.apply_transaction_at(&transaction.transaction, block.height())?;
-            if let Some(sender) = staged.accounts.get(&transaction.transaction.from) {
-                state_tree.update_account(sender);
-            }
-            if let Some(receiver) = staged.accounts.get(&transaction.transaction.to) {
-                state_tree.update_account(receiver);
-            }
         }
 
+        let block_hash = block.hash();
+        for transaction in &block.ecash_transactions {
+            staged.apply_signed_ecash_transaction_in_block(
+                transaction,
+                block.height(),
+                block_hash,
+            )?;
+        }
         if block.is_genesis() {
             for allocation in &block.genesis_allocations {
                 staged.create_account(allocation.to, allocation.amount)?;
-                if let Some(account) = staged.accounts.get(&allocation.to) {
-                    state_tree.update_account(account);
-                }
             }
         } else {
             staged.apply_coinbase(block)?;
-            if let Some(miner) = staged.accounts.get(&block.miner_address()) {
-                state_tree.update_account(miner);
-            }
         }
 
-        let expected_state_root = state_tree.root();
-        if !block.is_genesis() && block.state_root() != expected_state_root {
+        let expected_state_root = if block.is_genesis() {
+            staged.state_root()
+        } else {
+            staged.protocol_state_root()
+        };
+        if !block.is_genesis()
+            && block.state_root() != StateRoot::ZERO
+            && block.state_root() != expected_state_root
+        {
             return Err(LedgerError::InvalidStateRoot);
         }
 

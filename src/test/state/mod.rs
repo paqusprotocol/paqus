@@ -4,6 +4,8 @@ use crate::crypto::Address;
 use crate::state::{Account, StateError};
 use crate::transaction::Transaction;
 
+mod offchain_coin;
+
 const TEST_FEE: u64 = 2;
 
 fn address(byte: u8) -> Address {

@@ -1,8 +1,10 @@
-use crate::block::Nonce;
+use crate::block::{Height, Nonce};
 use crate::consensus::supply::Amount;
 use crate::crypto::{Address, PublicKey, Signature};
 use crate::crypto::{address_from_public_key, generate_keypair, sign};
-use crate::transaction::{SignedTransaction, Transaction, TransactionError};
+use crate::transaction::{
+    SignedProtocolTransaction, SignedTransaction, Transaction, TransactionError, ValidityWindow,
+};
 
 const TEST_FEE: u64 = 2;
 
@@ -56,6 +58,33 @@ fn allows_zero_fee_at_core_validation_layer() {
 }
 
 #[test]
+fn validity_window_is_inclusive_and_height_bound() {
+    assert_eq!(
+        ValidityWindow::new(Height(12), Height(11)),
+        Err(TransactionError::InvalidValidityWindow)
+    );
+    let window = ValidityWindow::new(Height(10), Height(12)).unwrap();
+    let keypair = generate_keypair();
+    let from = address_from_public_key(&keypair.public_key);
+    let payload = Transaction::new(from, address(2), Amount(10), Amount(TEST_FEE), Nonce(0))
+        .with_validity_window(window);
+    let signature = sign(&keypair.secret_key, &payload.signing_bytes());
+    let signed = SignedTransaction::new(payload, keypair.public_key, signature);
+
+    assert_eq!(signed.validate_signed(), Ok(()));
+    assert_eq!(
+        signed.validate_signed_for_height(Height(9)),
+        Err(TransactionError::NotYetValid)
+    );
+    assert_eq!(signed.validate_signed_for_height(Height(10)), Ok(()));
+    assert_eq!(signed.validate_signed_for_height(Height(12)), Ok(()));
+    assert_eq!(
+        signed.validate_signed_for_height(Height(13)),
+        Err(TransactionError::ValidityExpired)
+    );
+}
+
+#[test]
 fn treats_transaction_timestamp_as_signed_metadata() {
     let now = 1_700_000_000;
     let valid = Transaction::new_at(
@@ -106,6 +135,31 @@ fn signed_transaction_timestamp_policy_is_outside_core_validation() {
     let signed = SignedTransaction::new(payload, keypair.public_key, signature);
 
     assert_eq!(signed.validate_signed_at(now), Ok(()));
+}
+
+#[test]
+fn protocol_envelope_exposes_single_witness_public_key_and_address() {
+    let keypair = generate_keypair();
+    let from = address_from_public_key(&keypair.public_key);
+    let payload = Transaction::new(from, address(2), Amount(10), Amount(TEST_FEE), Nonce(0));
+    let signature = sign(&keypair.secret_key, &payload.signing_bytes());
+    let envelope = SignedProtocolTransaction::from(SignedTransaction::new(
+        payload,
+        keypair.public_key,
+        signature,
+    ));
+
+    assert_eq!(envelope.witness_public_keys(), vec![&keypair.public_key]);
+    assert_eq!(
+        envelope.single_witness_public_key(),
+        Some(&keypair.public_key)
+    );
+    assert_eq!(envelope.witness_addresses(), vec![from]);
+    assert_eq!(
+        envelope.weight(),
+        envelope.stripped_size() * crate::block::WITNESS_SCALE_FACTOR + envelope.witness_size()
+    );
+    assert!(envelope.virtual_size() < envelope.to_bytes().len());
 }
 
 #[test]
@@ -205,5 +259,59 @@ fn rejects_signed_transaction_with_invalid_signature() {
     assert_eq!(
         signed.validate_signed(),
         Err(TransactionError::InvalidSignature)
+    );
+}
+
+#[test]
+fn validates_signed_ecash_withdraw() {
+    use crate::ecash::{CashDenomination, WithdrawCashMetadata, cash_coin_commitment};
+    use crate::transaction::{EcashTransaction, SignedEcashTransaction};
+
+    let keypair = generate_keypair();
+    let signer = address_from_public_key(&keypair.public_key);
+    let commitments: Vec<[u8; 32]> = (0..10)
+        .map(|index| cash_coin_commitment(&[index; 32]))
+        .collect();
+    let metadata = WithdrawCashMetadata::with_denominations(
+        Amount(1_000 * crate::consensus::supply::XPQ),
+        &[CashDenomination::OneHundred; 10],
+        &commitments,
+    )
+    .unwrap();
+    let transaction = EcashTransaction::withdraw(
+        signer,
+        Amount(1_000 * crate::consensus::supply::XPQ),
+        Amount(TEST_FEE),
+        Nonce(0),
+        metadata,
+    );
+    let signature = sign(&keypair.secret_key, &transaction.signing_bytes());
+    let signed = SignedEcashTransaction::new(transaction, keypair.public_key, signature);
+
+    assert_eq!(signed.validate_signed(), Ok(()));
+}
+
+#[test]
+fn rejects_ecash_withdraw_when_outputs_do_not_match_amount() {
+    use crate::ecash::{CashDenomination, WithdrawCashMetadata, cash_coin_commitment};
+    use crate::transaction::EcashTransaction;
+
+    let metadata = WithdrawCashMetadata::with_denominations(
+        Amount(100 * crate::consensus::supply::XPQ),
+        &[CashDenomination::OneHundred],
+        &[cash_coin_commitment(&[1; 32])],
+    )
+    .unwrap();
+    let transaction = EcashTransaction::withdraw(
+        address(1),
+        Amount(50 * crate::consensus::supply::XPQ),
+        Amount(TEST_FEE),
+        Nonce(0),
+        metadata,
+    );
+
+    assert_eq!(
+        transaction.validate(),
+        Err(TransactionError::InvalidEcashMetadata)
     );
 }

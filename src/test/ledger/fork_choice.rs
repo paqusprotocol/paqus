@@ -92,6 +92,6 @@ fn chooses_lowest_hash_when_cumulative_work_ties() {
 #[test]
 fn distinguishes_high_difficulty_work_above_u128_range() {
     assert!(block_work(200) > block_work(199));
-    assert!(block_work(255) > block_work(254));
-    assert_eq!(block_work(256), block_work(u32::MAX));
+    assert!(block_work(511) > block_work(510));
+    assert_eq!(block_work(512), block_work(u32::MAX));
 }

@@ -2,10 +2,11 @@ use crate::block::Height;
 use crate::consensus::supply::Amount;
 use crate::crypto::Address;
 use crate::crypto::Hash;
-use crate::genesis::{CURRENT_CHAIN_PARAMS, PAQUS_CHAIN};
+use crate::genesis::{CURRENT_CHAIN_PARAMS, GenesisError, PAQUS_CHAIN};
 use crate::genesis::{
-    GENESIS_HASH, GenesisConfig, create_default_genesis_ledger, create_genesis_block,
-    create_genesis_ledger, genesis_block, genesis_block_for_chain, genesis_ledger,
+    FROZEN_GENESIS_HASH, GENESIS_HASH, GenesisConfig, create_default_genesis_ledger,
+    create_genesis_block, create_genesis_ledger, genesis_block, genesis_block_for_chain,
+    genesis_ledger, validate_genesis_identity,
 };
 
 fn address(byte: u8) -> Address {
@@ -94,4 +95,17 @@ fn genesis_is_selected_from_chain_params() {
 fn mainnet_genesis_identity_is_static() {
     assert_eq!(PAQUS_CHAIN.genesis.miner_address, Address::ZERO.0);
     assert_eq!(PAQUS_CHAIN.genesis.timestamp, 1_700_000_000);
+    assert_eq!(GENESIS_HASH, FROZEN_GENESIS_HASH);
+    assert_eq!(validate_genesis_identity(PAQUS_CHAIN), Ok(()));
+}
+
+#[test]
+fn rejects_chain_params_that_do_not_match_the_frozen_genesis() {
+    let mut params = PAQUS_CHAIN;
+    params.genesis.hash[0] ^= 1;
+
+    assert!(matches!(
+        validate_genesis_identity(params),
+        Err(GenesisError::HashMismatch { .. })
+    ));
 }

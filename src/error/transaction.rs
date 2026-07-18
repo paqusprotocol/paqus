@@ -13,6 +13,12 @@ pub enum TransactionError {
     TransactionTooLarge,
     InvalidSignature,
     SenderAddressMismatch,
+    InvalidEcashMetadata,
+    EcashFeeExceedsAmount,
+    InvalidEcashRecipient,
+    InvalidValidityWindow,
+    NotYetValid,
+    ValidityExpired,
 }
 
 impl fmt::Display for TransactionError {
@@ -43,6 +49,24 @@ impl fmt::Display for TransactionError {
             TransactionError::InvalidSignature => f.write_str("transaction signature is invalid"),
             TransactionError::SenderAddressMismatch => {
                 f.write_str("transaction sender does not match public key address")
+            }
+            TransactionError::InvalidEcashMetadata => {
+                f.write_str("transaction contains invalid eCash metadata")
+            }
+            TransactionError::EcashFeeExceedsAmount => {
+                f.write_str("eCash deposit fee must be less than deposited amount")
+            }
+            TransactionError::InvalidEcashRecipient => {
+                f.write_str("eCash deposit recipient is invalid")
+            }
+            TransactionError::InvalidValidityWindow => {
+                f.write_str("transaction validity window is invalid")
+            }
+            TransactionError::NotYetValid => {
+                f.write_str("transaction is not valid at this block height yet")
+            }
+            TransactionError::ValidityExpired => {
+                f.write_str("transaction validity window has expired")
             }
         }
     }

@@ -6,29 +6,29 @@ use std::collections::BTreeMap;
 use std::ops::Add;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Work([u64; 4]);
+pub struct Work([u64; 8]);
 
 impl Work {
-    pub const ZERO: Self = Self([0, 0, 0, 0]);
-    pub const MAX: Self = Self([u64::MAX, u64::MAX, u64::MAX, u64::MAX]);
+    pub const ZERO: Self = Self([0; 8]);
+    pub const MAX: Self = Self([u64::MAX; 8]);
 
     pub fn pow2(exponent: u32) -> Self {
-        if exponent >= 256 {
+        if exponent >= 512 {
             return Self::MAX;
         }
 
         let limb_from_low = (exponent / 64) as usize;
         let bit = exponent % 64;
-        let mut limbs = [0; 4];
-        limbs[3 - limb_from_low] = 1_u64 << bit;
+        let mut limbs = [0; 8];
+        limbs[7 - limb_from_low] = 1_u64 << bit;
         Self(limbs)
     }
 
     pub fn saturating_add(self, rhs: Self) -> Self {
-        let mut result = [0; 4];
+        let mut result = [0; 8];
         let mut carry = 0_u128;
 
-        for index in (0..4).rev() {
+        for index in (0..result.len()).rev() {
             let sum = self.0[index] as u128 + rhs.0[index] as u128 + carry;
             result[index] = sum as u64;
             carry = sum >> 64;

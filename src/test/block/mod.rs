@@ -1,11 +1,14 @@
 use crate::block::{Block, BlockError};
 use crate::block::{Height, Nonce};
+use crate::codec::{block_bytes, decode_block};
 use crate::consensus::MAX_FUTURE_TIME;
 use crate::consensus::supply::Amount;
 use crate::crypto::Address;
 use crate::crypto::Hash;
 use crate::crypto::{address_from_public_key, generate_keypair, sign};
-use crate::transaction::{SignedTransaction, Transaction};
+use crate::transaction::{
+    EcashTransaction, SignedEcashTransaction, SignedTransaction, Transaction,
+};
 
 const TEST_FEE: u64 = 2;
 
@@ -107,6 +110,77 @@ fn rejects_tampered_merkle_root() {
 }
 
 #[test]
+fn rejects_tampered_witness_root() {
+    let mut block = Block::new(
+        Height(1),
+        Hash([0; crate::crypto::HASH_SIZE]),
+        miner(),
+        1_700_000_000,
+        Nonce(42),
+        vec![signed_transaction(1)],
+    );
+    block.header.witness_root.0[0] ^= 0xff;
+
+    assert_eq!(block.validate(), Err(BlockError::InvalidWitnessRoot));
+}
+
+#[test]
+fn segwit_keeps_txid_stable_and_commits_witness_variants() {
+    let transaction = signed_transaction(1);
+    let mut alternate_witness = transaction.clone();
+    alternate_witness.witness.signature.0[0] ^= 0xff;
+
+    assert_eq!(transaction.txid(), alternate_witness.txid());
+    assert_ne!(transaction.wtxid(), alternate_witness.wtxid());
+
+    let original = Block::new(
+        Height(1),
+        Hash([0; crate::crypto::HASH_SIZE]),
+        miner(),
+        1_700_000_000,
+        Nonce(42),
+        vec![transaction],
+    );
+    let alternate = Block::new(
+        Height(1),
+        Hash([0; crate::crypto::HASH_SIZE]),
+        miner(),
+        1_700_000_000,
+        Nonce(42),
+        vec![alternate_witness],
+    );
+
+    assert_eq!(original.header.merkle_root, alternate.header.merkle_root);
+    assert_ne!(original.header.witness_root, alternate.header.witness_root);
+    assert_ne!(original.hash(), alternate.hash());
+}
+
+#[test]
+fn segwit_wire_format_roundtrips_and_rejects_section_length_mismatch() {
+    let block = Block::new(
+        Height(1),
+        Hash([0; crate::crypto::HASH_SIZE]),
+        miner(),
+        1_700_000_000,
+        Nonce(42),
+        vec![signed_transaction(1)],
+    );
+    let bytes = block_bytes(&block);
+
+    assert_eq!(
+        block.serialized_size(),
+        block.stripped_size() + block.witness_size()
+    );
+    assert_eq!(decode_block(&bytes).unwrap(), block);
+
+    let mut mismatched = bytes;
+    let first_witness_length = block.stripped_size();
+    mismatched[first_witness_length..first_witness_length + 4]
+        .copy_from_slice(&0_u32.to_le_bytes());
+    assert!(decode_block(&mismatched).is_err());
+}
+
+#[test]
 fn rejects_transaction_with_invalid_signature() {
     let mut transaction = signed_transaction(1);
     transaction.witness.signature.0[0] ^= 0xff;
@@ -201,4 +275,71 @@ fn rejects_fee_overflow() {
 
     assert_eq!(block.checked_total_fees(), Err(BlockError::FeeOverflow));
     assert_eq!(block.validate(), Err(BlockError::FeeOverflow));
+}
+
+#[test]
+fn block_commits_transfer_ecash_and_witnesses() {
+    use crate::consensus::supply::XPQ;
+    use crate::ecash::{CashDenomination, WithdrawCashMetadata, cash_coin_commitment};
+
+    let keypair = generate_keypair();
+    let signer = address_from_public_key(&keypair.public_key);
+    let metadata = WithdrawCashMetadata::with_denominations(
+        Amount(XPQ),
+        &[CashDenomination::One],
+        &[cash_coin_commitment(&[90; 32])],
+    )
+    .unwrap();
+    let transaction =
+        EcashTransaction::withdraw(signer, Amount(XPQ), Amount(3), Nonce(0), metadata);
+    let signature = sign(&keypair.secret_key, &transaction.signing_bytes());
+    let ecash = SignedEcashTransaction::new(transaction, keypair.public_key, signature);
+    let mut block = Block::with_all_transactions(
+        Height(crate::snapshot::SNAPSHOT_INTERVAL),
+        Hash([1; crate::crypto::HASH_SIZE]),
+        miner(),
+        1,
+        1_700_000_000,
+        Nonce(1),
+        vec![signed_transaction(0)],
+        vec![ecash],
+    )
+    .unwrap();
+
+    assert_eq!(block.header.version, crate::block::BLOCK_VERSION);
+    assert_eq!(block.transaction_count(), 2);
+    assert_eq!(block.checked_total_fees(), Ok(Amount(TEST_FEE + 3)));
+    assert_eq!(block.coinbase.as_ref().unwrap().fees, Amount(TEST_FEE + 3));
+    assert_eq!(block.validate(), Ok(()));
+
+    block.header.merkle_root.0[0] ^= 0xff;
+    assert_eq!(block.validate(), Err(BlockError::InvalidMerkleRoot));
+}
+
+#[test]
+fn uses_the_segwit_format_immediately_after_genesis() {
+    let block = Block::new(
+        Height(1),
+        Hash([1; crate::crypto::HASH_SIZE]),
+        miner(),
+        1_700_000_000,
+        Nonce(0),
+        vec![],
+    );
+    assert_eq!(block.header.version, crate::block::BLOCK_VERSION);
+    assert_eq!(block.validate(), Ok(()));
+
+    assert_eq!(
+        Block::with_all_transactions(
+            Height(0),
+            Hash([1; crate::crypto::HASH_SIZE]),
+            miner(),
+            1,
+            1_700_000_000,
+            Nonce(0),
+            vec![],
+            vec![],
+        ),
+        Err(BlockError::InvalidTransaction)
+    );
 }

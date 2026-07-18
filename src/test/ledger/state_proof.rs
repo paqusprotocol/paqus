@@ -43,6 +43,37 @@ fn sparse_state_tree_incremental_updates_match_full_root() {
 }
 
 #[test]
+fn sparse_state_tree_removals_match_full_root_and_return_to_zero() {
+    let mut accounts = BTreeMap::new();
+    let mut tree = SparseStateTree::new();
+    for byte in 1..=4 {
+        let account = Account::new(address(byte), Amount(byte as u64));
+        tree.update_account(&account);
+        accounts.insert(account.address, account);
+    }
+
+    for byte in [2, 4, 1, 3] {
+        tree.remove_account(&address(byte));
+        accounts.remove(&address(byte));
+        assert_eq!(tree.root(), calculate_state_root(&accounts));
+    }
+}
+
+#[test]
+fn cached_tree_proof_matches_its_incremental_root() {
+    let mut accounts = BTreeMap::new();
+    for byte in 1..=8 {
+        let account = Account::new(address(byte), Amount(byte as u64 * 10));
+        accounts.insert(account.address, account);
+    }
+    let tree = SparseStateTree::from_accounts(&accounts);
+    let proof = tree.create_account_proof(&accounts[&address(5)]);
+
+    assert_eq!(tree.root(), calculate_state_root(&accounts));
+    assert!(verify_account_state_proof(tree.root(), &proof));
+}
+
+#[test]
 fn rejects_tampered_account_state_proof() {
     let mut accounts = BTreeMap::new();
     accounts.insert(address(1), Account::new(address(1), Amount(100)));

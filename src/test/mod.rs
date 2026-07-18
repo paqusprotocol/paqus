@@ -1,8 +1,12 @@
 mod block;
 mod consensus;
 mod crypto;
+mod decoder_hardening;
+mod ecash;
+mod event;
 mod genesis;
 mod ledger;
+mod protocol_vectors;
 mod snapshot;
 mod spec;
 mod state;

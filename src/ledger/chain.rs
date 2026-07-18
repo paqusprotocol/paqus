@@ -64,11 +64,11 @@ impl Chain {
                     return Err(LedgerError::InvalidParent);
                 }
 
-                let tip_block = self
-                    .blocks
-                    .get(&tip_height)
-                    .ok_or(LedgerError::InvalidParent)?;
-                if block.timestamp() < tip_block.timestamp() {
+                if block.timestamp()
+                    < self
+                        .timestamp_at(tip_height)
+                        .ok_or(LedgerError::InvalidParent)?
+                {
                     return Err(LedgerError::InvalidTimestamp);
                 }
             }
@@ -76,5 +76,25 @@ impl Chain {
         }
 
         Ok(())
+    }
+
+    pub fn remove_tip(&mut self, expected_hash: BlockHash) -> Result<Block, LedgerError> {
+        if self.tip_hash != Some(expected_hash) {
+            return Err(LedgerError::InvalidParent);
+        }
+        let height = self.tip_height.ok_or(LedgerError::InvalidBlockHeight)?;
+        let block = self
+            .blocks
+            .remove(&height)
+            .ok_or(LedgerError::InvalidBlockHeight)?;
+        let previous_height = height.0.checked_sub(1).map(Height);
+        self.tip_height = previous_height;
+        self.tip_hash =
+            previous_height.and_then(|previous| self.blocks.get(&previous).map(Block::hash));
+        Ok(block)
+    }
+
+    fn timestamp_at(&self, height: BlockHeight) -> Option<u64> {
+        self.blocks.get(&height).map(Block::timestamp)
     }
 }

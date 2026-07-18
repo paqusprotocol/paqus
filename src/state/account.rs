@@ -46,6 +46,7 @@ pub enum CreditSource {
     Transaction,
     Fee,
     MiningReward,
+    EcashDeposit,
 }
 
 impl Account {

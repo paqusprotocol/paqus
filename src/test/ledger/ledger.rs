@@ -1,4 +1,4 @@
-use super::{Ledger, LedgerError, validate_transaction_against_state};
+use super::{Ledger, LedgerError, calculate_state_root, validate_transaction_against_state};
 use crate::block::{Block, CoinbaseTransaction};
 use crate::block::{Height, Nonce};
 use crate::consensus::block_reward;
@@ -468,5 +468,21 @@ fn calculates_deterministic_state_root_after_block() {
     block_with_root.set_state_root(expected);
 
     assert_eq!(ledger.apply_block(block_with_root), Ok(()));
-    assert_eq!(ledger.state_root(), expected);
+    assert_eq!(ledger.protocol_state_root(), expected);
+}
+
+#[test]
+fn account_mut_guard_refreshes_cached_state_root() {
+    let mut ledger = Ledger::new();
+    ledger.create_account(address(1), Amount(100)).unwrap();
+    let original = ledger.state_root();
+
+    ledger
+        .account_mut(&address(1))
+        .unwrap()
+        .credit(Amount(25))
+        .unwrap();
+
+    assert_ne!(ledger.state_root(), original);
+    assert_eq!(ledger.state_root(), calculate_state_root(&ledger.accounts));
 }

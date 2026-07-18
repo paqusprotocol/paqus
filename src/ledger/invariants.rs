@@ -1,5 +1,5 @@
 use crate::error::{LedgerError, StateError};
-use crate::ledger::Ledger;
+use crate::ledger::{Ledger, calculate_state_root};
 
 pub fn validate_ledger_invariants(ledger: &Ledger) -> Result<(), LedgerError> {
     ledger.total_supply()?;
@@ -17,6 +17,10 @@ pub fn validate_ledger_invariants(ledger: &Ledger) -> Result<(), LedgerError> {
         if credit_total != account.balance.0 {
             return Err(LedgerError::InvalidState(StateError::BalanceOverflow));
         }
+    }
+
+    if ledger.state_root() != calculate_state_root(&ledger.accounts) {
+        return Err(LedgerError::InvalidStateRoot);
     }
 
     Ok(())

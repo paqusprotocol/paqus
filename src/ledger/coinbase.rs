@@ -22,7 +22,9 @@ impl Ledger {
         if coinbase.subsidy != expected_subsidy {
             return Err(LedgerError::InvalidCoinbase);
         }
-        self.mint_miner_subsidy(coinbase.to, coinbase.subsidy, block.height())
+        self.mint_miner_subsidy(coinbase.to, coinbase.subsidy, block.height())?;
+        self.refresh_account_state(&coinbase.to);
+        Ok(())
     }
 
     fn credit_miner_fees(

@@ -79,6 +79,21 @@ pub fn generate_keypair() -> KeyPair {
     }
 }
 
+/// Deterministically derives an ML-DSA-87 public key from a compact 32-byte seed.
+/// This is used by bearer eCash files so the large expanded secret key never
+/// needs to be stored in the file.
+pub fn public_key_from_seed(seed: &[u8; 32]) -> PublicKey {
+    let signing_key = PaqusSigningKey::from_seed(&(*seed).into());
+    PublicKey(signing_key.verifying_key().encode().into())
+}
+
+/// Signs with the ML-DSA-87 key deterministically derived from a 32-byte seed.
+pub fn sign_from_seed(seed: &[u8; 32], message: &[u8]) -> Signature {
+    let signing_key = PaqusSigningKey::from_seed(&(*seed).into());
+    let signature: PaqusSignature = signing_key.sign(message);
+    Signature(signature.to_bytes().into())
+}
+
 pub fn derive_public_key(secret_key: &SecretKey) -> PublicKey {
     let expanded_key = expanded_signing_key(secret_key);
     PublicKey(expanded_key.verifying_key().encode().into())

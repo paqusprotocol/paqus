@@ -10,10 +10,12 @@ pub use address::{
 pub use hash::{
     BlockHash, HASH_SIZE, Hash, HashBytes, HashDomain, MerkleHash, PROOF_OF_WORK_HASH_SIZE,
     PreviousHash, ProofOfWorkHash, ProofOfWorkHashBytes, StateRoot, TransactionHash,
-    argon2_proof_of_work_hash, domain_hash, hash_bytes, hash_meets_difficulty,
+    WitnessMerkleHash, WitnessTransactionHash, domain_hash, hash_bytes, hash_meets_difficulty,
+    sha3_512_proof_of_work_hash,
 };
 pub use keygen::{
     CachedVerifyingKey, KeyPair, PUBLIC_KEY_SIZE, PublicKey, PublicKeyBytes, SECRET_KEY_SIZE,
     SIGNATURE_SIZE, SecretKey, SecretKeyBytes, Signature, SignatureBytes, cached_verifying_key,
-    derive_public_key, generate_keypair, sign, verify, verify_result,
+    derive_public_key, generate_keypair, public_key_from_seed, sign, sign_from_seed, verify,
+    verify_result,
 };

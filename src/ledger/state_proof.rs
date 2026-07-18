@@ -31,6 +31,7 @@ pub struct AccountStateProof {
 pub struct SparseStateTree {
     nodes: BTreeMap<(usize, [u8; ADDRESS_SIZE]), Hash>,
     root: StateRoot,
+    leaves: usize,
 }
 
 impl Default for SparseStateTree {
@@ -38,6 +39,7 @@ impl Default for SparseStateTree {
         Self {
             nodes: BTreeMap::new(),
             root: StateRoot::ZERO,
+            leaves: 0,
         }
     }
 }
@@ -60,27 +62,77 @@ impl SparseStateTree {
     }
 
     pub fn update_account(&mut self, account: &Account) {
-        self.nodes.insert(
-            (ADDRESS_BITS, account.address.0),
-            account_leaf_hash(account),
-        );
+        if self
+            .nodes
+            .insert(
+                (ADDRESS_BITS, account.address.0),
+                account_leaf_hash(account),
+            )
+            .is_none()
+        {
+            self.leaves += 1;
+        }
 
-        for depth in (0..ADDRESS_BITS).rev() {
+        self.recalculate_path(account.address);
+    }
+
+    pub fn remove_account(&mut self, address: &Address) {
+        if self.nodes.remove(&(ADDRESS_BITS, address.0)).is_none() {
+            return;
+        }
+        self.leaves -= 1;
+        if self.leaves == 0 {
+            self.nodes.clear();
+            self.root = StateRoot::ZERO;
+            return;
+        }
+        self.recalculate_path(*address);
+    }
+
+    pub fn create_account_proof(&self, account: &Account) -> AccountStateProof {
+        let mut siblings = Vec::with_capacity(ADDRESS_BITS);
+        for depth in 0..ADDRESS_BITS {
             let parent_prefix = address_prefix(&account.address, depth);
+            let bit = address_bit(&account.address, depth);
+            let sibling_prefix = child_prefix(parent_prefix, depth, !bit);
+            siblings.push(StateProofNode {
+                side: if bit {
+                    ProofSide::Left
+                } else {
+                    ProofSide::Right
+                },
+                hash: self
+                    .nodes
+                    .get(&(depth + 1, sibling_prefix))
+                    .copied()
+                    .unwrap_or_else(|| empty_subtree_hash(depth + 1)),
+            });
+        }
+        AccountStateProof {
+            address: account.address,
+            account: account.clone(),
+            siblings,
+        }
+    }
+
+    fn recalculate_path(&mut self, address: Address) {
+        for depth in (0..ADDRESS_BITS).rev() {
+            let parent_prefix = address_prefix(&address, depth);
             let left_prefix = child_prefix(parent_prefix, depth, false);
             let right_prefix = child_prefix(parent_prefix, depth, true);
-            let left = self
-                .nodes
-                .get(&(depth + 1, left_prefix))
-                .copied()
-                .unwrap_or_else(|| empty_subtree_hash(depth + 1));
-            let right = self
-                .nodes
-                .get(&(depth + 1, right_prefix))
-                .copied()
-                .unwrap_or_else(|| empty_subtree_hash(depth + 1));
-            self.nodes
-                .insert((depth, parent_prefix), parent_hash(left, right));
+            let left = self.nodes.get(&(depth + 1, left_prefix)).copied();
+            let right = self.nodes.get(&(depth + 1, right_prefix)).copied();
+            if left.is_none() && right.is_none() {
+                self.nodes.remove(&(depth, parent_prefix));
+            } else {
+                self.nodes.insert(
+                    (depth, parent_prefix),
+                    parent_hash(
+                        left.unwrap_or_else(|| empty_subtree_hash(depth + 1)),
+                        right.unwrap_or_else(|| empty_subtree_hash(depth + 1)),
+                    ),
+                );
+            }
         }
 
         self.root = self

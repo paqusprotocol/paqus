@@ -2,11 +2,16 @@ use crate::codec::{HashDomain, block_bytes, block_header_hash, canonical_bytes, 
 use crate::consensus::supply::Amount;
 use crate::consensus::{DIFFICULTY_START, MAX_FUTURE_TIME, block_reward};
 use crate::crypto::Address;
-use crate::crypto::{BlockHash, HASH_SIZE, Hash, MerkleHash, PreviousHash, StateRoot};
+use crate::crypto::{
+    BlockHash, HASH_SIZE, Hash, MerkleHash, PreviousHash, StateRoot, WitnessMerkleHash,
+};
 pub use crate::error::BlockError;
-use crate::transaction::SignedTransaction;
+use crate::transaction::{
+    EcashTransaction, SignedEcashTransaction, SignedTransaction, Transaction, Witness,
+};
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
+use std::io::{Error as IoError, ErrorKind, Read, Write};
 use std::thread;
 
 #[derive(
@@ -44,8 +49,11 @@ pub struct Nonce(pub u64);
 pub type BlockHeight = Height;
 pub type BlockNonce = Nonce;
 
-pub const MAX_BLOCK_SIZE: usize = 3 * 1024 * 1024;
-pub const MAX_BLOCK_TXS: usize = 350;
+pub const MAX_BLOCK_SIZE: usize = 5 * 1024 * 1024;
+pub const MAX_BLOCK_TXS: usize = 500;
+pub const BLOCK_VERSION: u8 = 1;
+pub const WITNESS_SCALE_FACTOR: usize = 4;
+pub const MAX_BLOCK_WEIGHT: usize = MAX_BLOCK_SIZE * WITNESS_SCALE_FACTOR;
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct BlockHeader {
@@ -53,6 +61,7 @@ pub struct BlockHeader {
     pub height: BlockHeight,
     pub previous_hash: PreviousHash,
     pub merkle_root: MerkleHash,
+    pub witness_root: WitnessMerkleHash,
     pub state_root: StateRoot,
     pub miner_address: Address,
     pub difficulty: u32,
@@ -66,6 +75,7 @@ impl BlockHeader {
         height: BlockHeight,
         previous_hash: PreviousHash,
         merkle_root: MerkleHash,
+        witness_root: WitnessMerkleHash,
         state_root: StateRoot,
         miner_address: Address,
         difficulty: u32,
@@ -73,10 +83,11 @@ impl BlockHeader {
         nonce: BlockNonce,
     ) -> Self {
         Self {
-            version: 1,
+            version: BLOCK_VERSION,
             height,
             previous_hash,
             merkle_root,
+            witness_root,
             state_root,
             miner_address,
             difficulty,
@@ -90,12 +101,106 @@ impl BlockHeader {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Block {
     pub header: BlockHeader,
     pub genesis_allocations: Vec<GenesisAllocation>,
     pub coinbase: Option<CoinbaseTransaction>,
     pub transactions: Vec<SignedTransaction>,
+    pub ecash_transactions: Vec<SignedEcashTransaction>,
+}
+
+/// Consensus encoding keeps every payload section before every witness section.
+impl BorshSerialize for Block {
+    fn serialize<W: Write>(&self, writer: &mut W) -> std::io::Result<()> {
+        serialize_stripped_block(self, writer)?;
+
+        serialize_projection(&self.transactions, writer, |tx| &tx.witness)?;
+        serialize_projection(&self.ecash_transactions, writer, |tx| &tx.witness)
+    }
+}
+
+pub(crate) fn serialize_stripped_block<W: Write>(
+    block: &Block,
+    writer: &mut W,
+) -> std::io::Result<()> {
+    block.header.serialize(writer)?;
+    block.genesis_allocations.serialize(writer)?;
+    block.coinbase.serialize(writer)?;
+    serialize_projection(&block.transactions, writer, |tx| &tx.transaction)?;
+    serialize_projection(&block.ecash_transactions, writer, |tx| &tx.transaction)
+}
+
+impl BorshDeserialize for Block {
+    fn deserialize_reader<R: Read>(reader: &mut R) -> std::io::Result<Self> {
+        let header = BlockHeader::deserialize_reader(reader)?;
+        let genesis_allocations = Vec::<GenesisAllocation>::deserialize_reader(reader)?;
+        let coinbase = Option::<CoinbaseTransaction>::deserialize_reader(reader)?;
+
+        let transactions = Vec::<Transaction>::deserialize_reader(reader)?;
+        let ecash_transactions = Vec::<EcashTransaction>::deserialize_reader(reader)?;
+
+        let transaction_witnesses = Vec::<Witness>::deserialize_reader(reader)?;
+        let ecash_witnesses = Vec::<Witness>::deserialize_reader(reader)?;
+
+        Ok(Self {
+            header,
+            genesis_allocations,
+            coinbase,
+            transactions: zip_witnesses(
+                transactions,
+                transaction_witnesses,
+                |transaction, witness| SignedTransaction {
+                    transaction,
+                    witness,
+                },
+            )?,
+            ecash_transactions: zip_witnesses(
+                ecash_transactions,
+                ecash_witnesses,
+                |transaction, witness| SignedEcashTransaction {
+                    transaction,
+                    witness,
+                },
+            )?,
+        })
+    }
+}
+
+fn serialize_projection<T, U, W, F>(values: &[T], writer: &mut W, project: F) -> std::io::Result<()>
+where
+    U: BorshSerialize,
+    W: Write,
+    F: Fn(&T) -> &U,
+{
+    let length = u32::try_from(values.len())
+        .map_err(|_| IoError::new(ErrorKind::InvalidInput, "too many block section items"))?;
+    BorshSerialize::serialize(&length, writer)?;
+    for value in values {
+        project(value).serialize(writer)?;
+    }
+    Ok(())
+}
+
+fn zip_witnesses<T, W, S, F>(
+    transactions: Vec<T>,
+    witnesses: Vec<W>,
+    combine: F,
+) -> std::io::Result<Vec<S>>
+where
+    F: Fn(T, W) -> S,
+{
+    if transactions.len() != witnesses.len() {
+        return Err(IoError::new(
+            ErrorKind::InvalidData,
+            "transaction and witness section lengths differ",
+        ));
+    }
+    Ok(transactions
+        .into_iter()
+        .zip(witnesses)
+        .map(|(transaction, witness)| combine(transaction, witness))
+        .collect())
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, Hash)]
@@ -207,6 +312,7 @@ impl Block {
             vec![],
             coinbase,
             transactions,
+            vec![],
         )
     }
 
@@ -224,6 +330,7 @@ impl Block {
             Nonce(0),
             allocations,
             None,
+            vec![],
             vec![],
         )
     }
@@ -249,6 +356,7 @@ impl Block {
             vec![],
             coinbase,
             transactions,
+            vec![],
         )
     }
 
@@ -263,16 +371,23 @@ impl Block {
         genesis_allocations: Vec<GenesisAllocation>,
         coinbase: Option<CoinbaseTransaction>,
         transactions: Vec<SignedTransaction>,
+        ecash_transactions: Vec<SignedEcashTransaction>,
     ) -> Self {
         let previous_hash = previous_hash.into();
-        let merkle_root =
-            calculate_merkle_root(&genesis_allocations, coinbase.as_ref(), &transactions);
+        let merkle_root = calculate_merkle_root(
+            &genesis_allocations,
+            coinbase.as_ref(),
+            &transactions,
+            &ecash_transactions,
+        );
+        let witness_root = calculate_witness_merkle_root(&transactions, &ecash_transactions);
         let state_root = StateRoot::ZERO;
         Self {
             header: BlockHeader::new(
                 height,
                 previous_hash,
                 merkle_root,
+                witness_root,
                 state_root,
                 miner_address,
                 difficulty,
@@ -282,7 +397,42 @@ impl Block {
             genesis_allocations,
             coinbase,
             transactions,
+            ecash_transactions,
         }
+    }
+
+    /// Constructs a non-genesis SegWit block containing every transaction family.
+    #[allow(clippy::too_many_arguments)]
+    pub fn with_all_transactions(
+        height: BlockHeight,
+        previous_hash: impl Into<PreviousHash>,
+        miner_address: Address,
+        difficulty: u32,
+        timestamp: u64,
+        nonce: BlockNonce,
+        transactions: Vec<SignedTransaction>,
+        ecash_transactions: Vec<SignedEcashTransaction>,
+    ) -> Result<Self, BlockError> {
+        if height.0 == 0 {
+            return Err(BlockError::InvalidTransaction);
+        }
+        let fees = checked_fees(&transactions, &ecash_transactions)?;
+        Ok(Self::with_parts(
+            height,
+            previous_hash,
+            miner_address,
+            difficulty,
+            timestamp,
+            nonce,
+            vec![],
+            Some(CoinbaseTransaction::new(
+                miner_address,
+                block_reward(height),
+                fees,
+            )),
+            transactions,
+            ecash_transactions,
+        ))
     }
 
     pub fn validate(&self) -> Result<(), BlockError> {
@@ -290,7 +440,7 @@ impl Block {
     }
 
     pub fn validate_at(&self, now: u64) -> Result<(), BlockError> {
-        if self.header.version != 1 {
+        if self.header.version != BLOCK_VERSION {
             return Err(BlockError::UnsupportedVersion);
         }
 
@@ -298,7 +448,7 @@ impl Block {
             if self.coinbase.is_some() {
                 return Err(BlockError::UnexpectedCoinbase);
             }
-            if !self.transactions.is_empty() {
+            if self.transaction_count() != 0 {
                 return Err(BlockError::InvalidTransaction);
             }
         } else if self.coinbase.is_none() {
@@ -307,7 +457,7 @@ impl Block {
             return Err(BlockError::UnexpectedGenesisAllocation);
         }
 
-        if self.transactions.len() > MAX_BLOCK_TXS {
+        if self.transaction_count() > MAX_BLOCK_TXS {
             return Err(BlockError::TooManyTransactions);
         }
 
@@ -319,6 +469,9 @@ impl Block {
         if self.serialized_size() > MAX_BLOCK_SIZE {
             return Err(BlockError::BlockTooLarge);
         }
+        if self.weight() > MAX_BLOCK_WEIGHT {
+            return Err(BlockError::BlockTooHeavy);
+        }
 
         if self.header.timestamp > now.saturating_add(MAX_FUTURE_TIME as u64) {
             return Err(BlockError::FutureTimestamp);
@@ -327,9 +480,17 @@ impl Block {
         if !signed_transactions_are_valid_for_height(&self.transactions, self.height()) {
             return Err(BlockError::InvalidTransaction);
         }
+        if self
+            .ecash_transactions
+            .iter()
+            .any(|tx| tx.validate_signed_for_height(self.height()).is_err())
+        {
+            return Err(BlockError::InvalidTransaction);
+        }
 
         if let Some(coinbase) = &self.coinbase
-            && coinbase.to != self.header.miner_address
+            && (coinbase.to != self.header.miner_address
+                || coinbase.fees != self.checked_total_fees()?)
         {
             return Err(BlockError::InvalidCoinbase);
         }
@@ -347,9 +508,14 @@ impl Block {
                 &self.genesis_allocations,
                 self.coinbase.as_ref(),
                 &self.transactions,
+                &self.ecash_transactions,
             )
         {
             return Err(BlockError::InvalidMerkleRoot);
+        }
+
+        if self.header.witness_root != self.calculate_witness_merkle_root() {
+            return Err(BlockError::InvalidWitnessRoot);
         }
 
         Ok(())
@@ -392,14 +558,7 @@ impl Block {
     }
 
     pub fn checked_total_fees(&self) -> Result<Amount, BlockError> {
-        let fees = self
-            .transactions
-            .iter()
-            .try_fold(0_u64, |total, transaction| {
-                total.checked_add(transaction.transaction.fee.0)
-            })
-            .ok_or(BlockError::FeeOverflow)?;
-        Ok(Amount(fees))
+        checked_fees(&self.transactions, &self.ecash_transactions)
     }
 
     pub fn miner_revenue(&self, subsidy: Amount) -> MinerRevenue {
@@ -410,7 +569,7 @@ impl Block {
     }
 
     pub fn transaction_count(&self) -> usize {
-        self.transactions.len()
+        self.transactions.len() + self.ecash_transactions.len()
     }
 
     pub fn is_genesis(&self) -> bool {
@@ -419,6 +578,22 @@ impl Block {
 
     pub fn serialized_size(&self) -> usize {
         self.to_bytes().len()
+    }
+
+    /// Size of the header and transaction payload sections, excluding witness sections.
+    pub fn stripped_size(&self) -> usize {
+        crate::codec::stripped_block_bytes(self).len()
+    }
+
+    /// Size of the six witness sections, including their canonical length prefixes.
+    pub fn witness_size(&self) -> usize {
+        self.serialized_size().saturating_sub(self.stripped_size())
+    }
+
+    pub fn weight(&self) -> usize {
+        self.stripped_size()
+            .saturating_mul(WITNESS_SCALE_FACTOR)
+            .saturating_add(self.witness_size())
     }
 
     pub fn to_bytes(&self) -> Vec<u8> {
@@ -430,15 +605,30 @@ impl Block {
             &self.genesis_allocations,
             self.coinbase.as_ref(),
             &self.transactions,
+            &self.ecash_transactions,
         )
     }
 
+    pub fn calculate_witness_merkle_root(&self) -> WitnessMerkleHash {
+        calculate_witness_merkle_root(&self.transactions, &self.ecash_transactions)
+    }
+
     pub fn refresh_merkle_root(&mut self) {
+        self.refresh_commitments();
+    }
+
+    pub fn refresh_commitments(&mut self) {
         self.header.merkle_root = self.calculate_merkle_root();
+        self.header.witness_root = self.calculate_witness_merkle_root();
     }
 
     pub fn push_transaction(&mut self, transaction: SignedTransaction) {
         self.transactions.push(transaction);
+        if let Ok(fees) = self.checked_total_fees()
+            && let Some(coinbase) = &mut self.coinbase
+        {
+            coinbase.fees = fees;
+        }
         self.refresh_merkle_root();
     }
 }
@@ -447,6 +637,7 @@ fn calculate_merkle_root(
     genesis_allocations: &[GenesisAllocation],
     coinbase: Option<&CoinbaseTransaction>,
     transactions: &[SignedTransaction],
+    ecash_transactions: &[SignedEcashTransaction],
 ) -> MerkleHash {
     if genesis_allocations.is_empty() && coinbase.is_none() && transactions.is_empty() {
         return MerkleHash::ZERO;
@@ -461,6 +652,7 @@ fn calculate_merkle_root(
                 .iter()
                 .map(|transaction| transaction.hash().as_hash()),
         )
+        .chain(ecash_transactions.iter().map(|tx| tx.hash().as_hash()))
         .collect();
 
     while hashes.len() > 1 {
@@ -481,6 +673,52 @@ fn calculate_merkle_root(
     }
 
     MerkleHash(hashes[0].0)
+}
+
+fn calculate_witness_merkle_root(
+    transactions: &[SignedTransaction],
+    ecash_transactions: &[SignedEcashTransaction],
+) -> WitnessMerkleHash {
+    let mut hashes: Vec<Hash> = transactions
+        .iter()
+        .map(|tx| tx.wtxid().as_hash())
+        .chain(ecash_transactions.iter().map(|tx| tx.wtxid().as_hash()))
+        .collect();
+
+    if hashes.is_empty() {
+        return WitnessMerkleHash::ZERO;
+    }
+
+    while hashes.len() > 1 {
+        if hashes.len() % 2 == 1 {
+            let last = *hashes.last().expect("hashes is not empty");
+            hashes.push(last);
+        }
+        hashes = hashes
+            .chunks(2)
+            .map(|pair| {
+                let mut bytes = Vec::with_capacity(HASH_SIZE * 2);
+                bytes.extend_from_slice(&pair[0].0);
+                bytes.extend_from_slice(&pair[1].0);
+                domain_hash(HashDomain::WitnessMerkleNode, &bytes)
+            })
+            .collect();
+    }
+
+    WitnessMerkleHash(hashes[0].0)
+}
+
+fn checked_fees(
+    transactions: &[SignedTransaction],
+    ecash_transactions: &[SignedEcashTransaction],
+) -> Result<Amount, BlockError> {
+    transactions
+        .iter()
+        .map(|tx| tx.transaction.fee.0)
+        .chain(ecash_transactions.iter().map(|tx| tx.transaction.fee.0))
+        .try_fold(0u64, |total, fee| total.checked_add(fee))
+        .map(Amount)
+        .ok_or(BlockError::FeeOverflow)
 }
 
 fn signed_transactions_are_valid_for_height(

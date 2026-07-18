@@ -12,6 +12,8 @@ pub struct ChainParams {
     pub unit_name: &'static str,
     pub protocol_stage: &'static str,
     pub protocol_version: u8,
+    pub pow_algorithm: &'static str,
+    pub difficulty_algorithm: &'static str,
     pub network_magic: [u8; 4],
     pub genesis: GenesisParams,
 }
@@ -29,19 +31,25 @@ pub const PAQUS_CHAIN: ChainParams = ChainParams {
     coin_name: "XPQ",
     unit_name: "paqus",
     protocol_stage: "Mainnet",
-    protocol_version: 6,
+    protocol_version: 1,
+    pow_algorithm: "sha3-512",
+    difficulty_algorithm: "asert",
     network_magic: [0x58, 0x50, 0x51, 0x01],
     genesis: GenesisParams {
         miner_address: [0; crate::crypto::ADDRESS_SIZE],
         // Fixed timestamp of the first canonical genesis build. This must stay static so all nodes
         // derive the same genesis hash.
         timestamp: 1_700_000_000,
-        hash: [
-            206, 69, 167, 238, 216, 16, 246, 30, 123, 22, 139, 113, 157, 217, 207, 44, 92, 35, 68,
-            192, 112, 121, 202, 208, 154, 15, 169, 46, 34, 130, 235, 111,
-        ],
+        hash: FROZEN_GENESIS_HASH,
     },
 };
+
+/// Frozen mainnet identity for the canonical encoding and block format.
+/// Never update this value without defining a new protocol version and chain identity.
+pub const FROZEN_GENESIS_HASH: [u8; HASH_SIZE] = [
+    47, 99, 106, 110, 206, 201, 54, 25, 228, 54, 246, 111, 66, 186, 151, 127, 137, 163, 18, 100,
+    33, 233, 219, 20, 152, 25, 87, 106, 81, 227, 32, 184,
+];
 
 pub const CURRENT_CHAIN_PARAMS: ChainParams = PAQUS_CHAIN;
 
@@ -91,6 +99,17 @@ pub fn genesis_block_for_chain(params: ChainParams) -> Block {
     )
 }
 
+pub fn validate_genesis_identity(params: ChainParams) -> Result<(), GenesisError> {
+    let found = genesis_block_for_chain(params).hash().0;
+    if found != params.genesis.hash {
+        return Err(GenesisError::HashMismatch {
+            expected: params.genesis.hash,
+            found,
+        });
+    }
+    Ok(())
+}
+
 pub fn genesis_hash() -> Hash {
     Hash(GENESIS_HASH)
 }
@@ -100,6 +119,7 @@ pub fn genesis_ledger() -> Result<Ledger, GenesisError> {
 }
 
 pub fn genesis_ledger_for_chain(params: ChainParams) -> Result<Ledger, GenesisError> {
+    validate_genesis_identity(params)?;
     let mut ledger = Ledger::new();
     ledger.apply_block(genesis_block_for_chain(params))?;
 

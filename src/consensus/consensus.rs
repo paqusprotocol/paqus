@@ -1,8 +1,8 @@
 use crate::block::Block;
 use crate::block::{BlockHeight, Height};
 use crate::crypto::{
-    BlockHash, HASH_SIZE, Hash, PreviousHash, ProofOfWorkHash, argon2_proof_of_work_hash,
-    hash_meets_difficulty,
+    BlockHash, HASH_SIZE, Hash, PreviousHash, ProofOfWorkHash, hash_meets_difficulty,
+    sha3_512_proof_of_work_hash,
 };
 
 use crate::error::ConsensusError;
@@ -11,14 +11,13 @@ const SECOND: u32 = 1;
 const MINUTE: u32 = 60 * SECOND;
 const HOUR: u32 = 60 * MINUTE;
 const DAY: u32 = 24 * HOUR;
-pub const BLOCK_TIME: u32 = 5 * MINUTE;
+pub const BLOCK_TIME: u32 = MINUTE;
 pub const BLOCKS_PER_DAY: u64 = DAY as u64 / BLOCK_TIME as u64;
 pub const BLOCKS_PER_YEAR: u64 = 365 * BLOCKS_PER_DAY;
 pub const MIN_DIFFICULTY: u32 = 1;
 pub const DIFFICULTY_START: u32 = 1;
-pub const DIFFICULTY_ADJUSTMENT_INTERVAL: u64 = 2016;
-pub const DIFFICULTY_TIMESPAN_CLAMP_FACTOR: u64 = 16;
-pub const MAX_DIFFICULTY_ADJUSTMENT_BITS: u32 = 4;
+pub const DIFFICULTY_ADJUSTMENT_INTERVAL: u64 = 1;
+pub const ASERT_HALF_LIFE: u64 = 2 * DAY as u64;
 pub const MAX_FUTURE_TIME: u32 = 2 * MINUTE;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -63,7 +62,8 @@ impl Consensus {
             return Err(ConsensusError::InvalidHeight);
         }
 
-        self.validate_proof_of_work(block)
+        // Genesis is the frozen chain anchor, not a competitively mined block.
+        Ok(())
     }
 
     pub fn validate_next_block(
@@ -177,76 +177,43 @@ impl Consensus {
         proof_of_work_hash(block)
     }
 
-    pub fn retarget_difficulty(
+    pub fn asert_difficulty(
         &self,
-        current_difficulty: u32,
-        first_timestamp: u64,
-        last_timestamp: u64,
-        block_count: u64,
+        anchor_difficulty: u32,
+        anchor_timestamp: u64,
+        anchor_height: BlockHeight,
+        parent_timestamp: u64,
+        parent_height: BlockHeight,
     ) -> Result<u32, ConsensusError> {
-        if current_difficulty < MIN_DIFFICULTY {
+        if anchor_difficulty < MIN_DIFFICULTY || parent_height < anchor_height {
             return Err(ConsensusError::InvalidDifficulty);
         }
 
-        if block_count < DIFFICULTY_ADJUSTMENT_INTERVAL {
-            return Ok(current_difficulty);
-        }
+        const FRACTION_BITS: i128 = 16;
+        const FRACTION_SCALE: i128 = 1_i128 << FRACTION_BITS;
+        const ROUNDING: i128 = FRACTION_SCALE / 2;
 
-        let target_timespan = BLOCK_TIME as u64 * block_count;
-        let min_timespan = target_timespan / DIFFICULTY_TIMESPAN_CLAMP_FACTOR;
-        let max_timespan = target_timespan.saturating_mul(DIFFICULTY_TIMESPAN_CLAMP_FACTOR);
-        let actual_timespan = last_timestamp
-            .saturating_sub(first_timestamp)
-            .clamp(min_timespan.max(1), max_timespan.max(1));
+        let height_delta = parent_height.0.saturating_sub(anchor_height.0) as i128;
+        let ideal_elapsed = height_delta.saturating_mul(BLOCK_TIME as i128);
+        let actual_elapsed = parent_timestamp.saturating_sub(anchor_timestamp) as i128;
+        let time_error = ideal_elapsed.saturating_sub(actual_elapsed);
+        let exponent = time_error
+            .saturating_mul(FRACTION_SCALE)
+            .checked_div(ASERT_HALF_LIFE as i128)
+            .unwrap_or(0);
+        let difficulty = (anchor_difficulty as i128)
+            .saturating_mul(FRACTION_SCALE)
+            .saturating_add(exponent);
+        let rounded = difficulty.saturating_add(ROUNDING) / FRACTION_SCALE;
 
-        let adjustment = difficulty_adjustment_bits(target_timespan, actual_timespan);
-        let next = if adjustment >= 0 {
-            current_difficulty.saturating_add(adjustment as u32)
-        } else {
-            current_difficulty.saturating_sub(adjustment.unsigned_abs())
-        };
-
-        Ok(next.max(MIN_DIFFICULTY))
+        Ok(rounded.clamp(MIN_DIFFICULTY as i128, u32::MAX as i128) as u32)
     }
-}
-
-fn difficulty_adjustment_bits(target_timespan: u64, actual_timespan: u64) -> i32 {
-    if target_timespan == 0 || actual_timespan == 0 {
-        return MAX_DIFFICULTY_ADJUSTMENT_BITS as i32;
-    }
-
-    let mut adjustment = 0_i32;
-    let mut fast_threshold = target_timespan / 2;
-    while fast_threshold > 0
-        && actual_timespan <= fast_threshold
-        && adjustment < MAX_DIFFICULTY_ADJUSTMENT_BITS as i32
-    {
-        adjustment += 1;
-        fast_threshold /= 2;
-    }
-
-    if adjustment > 0 {
-        return adjustment;
-    }
-
-    let mut slow_threshold = target_timespan.saturating_mul(2);
-    while actual_timespan >= slow_threshold && adjustment > -(MAX_DIFFICULTY_ADJUSTMENT_BITS as i32)
-    {
-        adjustment -= 1;
-        let Some(next_threshold) = slow_threshold.checked_mul(2) else {
-            break;
-        };
-        slow_threshold = next_threshold;
-    }
-
-    adjustment
 }
 
 fn proof_of_work_hash(block: &Block) -> Result<ProofOfWorkHash, ConsensusError> {
     let header_bytes =
         borsh::to_vec(&block.header).expect("block header serialization should not fail");
-    argon2_proof_of_work_hash(&header_bytes)
-        .map_err(|_| ConsensusError::InvalidProofOfWorkParameters)
+    Ok(sha3_512_proof_of_work_hash(&header_bytes))
 }
 
 #[allow(dead_code)]
