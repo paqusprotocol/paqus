@@ -1,7 +1,7 @@
 use crate::codec::{HashDomain, block_bytes, block_header_hash, canonical_bytes, domain_hash};
 use crate::consensus::supply::Amount;
 use crate::consensus::{DIFFICULTY_START, MAX_FUTURE_TIME, block_reward};
-use crate::crypto::Address;
+use crate::crypto::{Address, PublicKey, Signature};
 use crate::crypto::{
     BlockHash, HASH_SIZE, Hash, MerkleHash, PreviousHash, StateRoot, WitnessMerkleHash,
 };
@@ -114,9 +114,10 @@ pub struct Block {
 impl BorshSerialize for Block {
     fn serialize<W: Write>(&self, writer: &mut W) -> std::io::Result<()> {
         serialize_stripped_block(self, writer)?;
-
-        serialize_projection(&self.transactions, writer, |tx| &tx.witness)?;
-        serialize_projection(&self.ecash_transactions, writer, |tx| &tx.witness)
+        let keys = witness_dictionary(self);
+        keys.serialize(writer)?;
+        serialize_indexed_witnesses(&self.transactions, &keys, writer, |tx| &tx.witness)?;
+        serialize_indexed_witnesses(&self.ecash_transactions, &keys, writer, |tx| &tx.witness)
     }
 }
 
@@ -140,10 +141,21 @@ impl BorshDeserialize for Block {
         let transactions = Vec::<Transaction>::deserialize_reader(reader)?;
         let ecash_transactions = Vec::<EcashTransaction>::deserialize_reader(reader)?;
 
-        let transaction_witnesses = Vec::<Witness>::deserialize_reader(reader)?;
-        let ecash_witnesses = Vec::<Witness>::deserialize_reader(reader)?;
+        let keys = Vec::<PublicKey>::deserialize_reader(reader)?;
+        if keys
+            .iter()
+            .enumerate()
+            .any(|(index, key)| keys[..index].contains(key))
+        {
+            return Err(IoError::new(
+                ErrorKind::InvalidData,
+                "duplicate witness dictionary key",
+            ));
+        }
+        let transaction_witnesses = decode_indexed_witnesses(reader, &keys)?;
+        let ecash_witnesses = decode_indexed_witnesses(reader, &keys)?;
 
-        Ok(Self {
+        let block = Self {
             header,
             genesis_allocations,
             coinbase,
@@ -163,8 +175,87 @@ impl BorshDeserialize for Block {
                     witness,
                 },
             )?,
-        })
+        };
+        if witness_dictionary(&block) != keys {
+            return Err(IoError::new(
+                ErrorKind::InvalidData,
+                "non-canonical witness dictionary",
+            ));
+        }
+        Ok(block)
     }
+}
+
+#[derive(BorshSerialize, BorshDeserialize)]
+struct IndexedWitness {
+    key_index: u32,
+    signature: Signature,
+}
+
+fn witness_dictionary(block: &Block) -> Vec<PublicKey> {
+    let mut keys = Vec::new();
+    for key in block
+        .transactions
+        .iter()
+        .map(|tx| tx.witness.public_key)
+        .chain(
+            block
+                .ecash_transactions
+                .iter()
+                .map(|tx| tx.witness.public_key),
+        )
+    {
+        if !keys.contains(&key) {
+            keys.push(key);
+        }
+    }
+    keys
+}
+
+fn serialize_indexed_witnesses<T, W, F>(
+    values: &[T],
+    keys: &[PublicKey],
+    writer: &mut W,
+    project: F,
+) -> std::io::Result<()>
+where
+    W: Write,
+    F: Fn(&T) -> &Witness,
+{
+    let indexed = values
+        .iter()
+        .map(|value| {
+            let witness = project(value);
+            let key_index = keys
+                .iter()
+                .position(|key| key == &witness.public_key)
+                .ok_or_else(|| IoError::new(ErrorKind::InvalidData, "missing witness key"))?;
+            Ok(IndexedWitness {
+                key_index: u32::try_from(key_index)
+                    .map_err(|_| IoError::new(ErrorKind::InvalidData, "too many witness keys"))?,
+                signature: witness.signature,
+            })
+        })
+        .collect::<std::io::Result<Vec<_>>>()?;
+    indexed.serialize(writer)
+}
+
+fn decode_indexed_witnesses<R: Read>(
+    reader: &mut R,
+    keys: &[PublicKey],
+) -> std::io::Result<Vec<Witness>> {
+    Vec::<IndexedWitness>::deserialize_reader(reader)?
+        .into_iter()
+        .map(|indexed| {
+            let public_key = keys
+                .get(indexed.key_index as usize)
+                .copied()
+                .ok_or_else(|| {
+                    IoError::new(ErrorKind::InvalidData, "witness key index out of range")
+                })?;
+            Ok(Witness::new(public_key, indexed.signature))
+        })
+        .collect()
 }
 
 fn serialize_projection<T, U, W, F>(values: &[T], writer: &mut W, project: F) -> std::io::Result<()>

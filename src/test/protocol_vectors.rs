@@ -153,10 +153,10 @@ fn canonical_protocol_envelope_block_and_event_vectors_are_stable() {
         vec![
             (
                 TransactionFamily::Transfer,
-                7309,
-                "68054e012f0830bddf44502219f7617be3a1382501277d8db0a4c6fc1110d257".into(),
-                "d80da8dcced3cbc6eeddce84d9e6420390e20a260fb8f4573e7890cb32b6f964".into(),
-                "ad96ece725f117a9eb5e99523c4f011b9746b134c7f365db72ead8e100ca7456".into(),
+                7313,
+                "7fff03c4e006af533e22d6c5aa211214baf560e957890de4f59d9cbd517de04d".into(),
+                "11ccb47f1c2d204d83a8ecc954089f773988e8a135b8e8062f12c58f038bb820".into(),
+                "14849b0c9ecd9e5583425efc2e62fab458af202afbe2a09079ee702c1ea63214".into(),
             ),
             (
                 TransactionFamily::Ecash,
@@ -170,18 +170,18 @@ fn canonical_protocol_envelope_block_and_event_vectors_are_stable() {
     assert_eq!(
         block_vector,
         (
-            14873,
-            "c681ad3b2e7aef1a1972a66ff9a1f98bd795d9024f886603c3c5d908cc6f89cf".into(),
-            "00645a305af69f71da9b6d7990ec909a661a7b3b47a86edd3cb70b2fa06f801b".into(),
-            "c05c0046170398f3cac3ce6e5f0834e204757b13bc2f4fcb1afe214c67c778db".into(),
-            "b7af85f1dac8c0effa474fb63200185d0dcd45c99951227f3b609a0bd1fc44c5".into(),
+            14889,
+            "1599c7615f4159aac1e682e2b66f6c7ecc33388411413d30280da11b2f43b62b".into(),
+            "635244c39733e498a081268d0cee9ec955e46ddd865e10e402a0bafad5cdc3f1".into(),
+            "152f8f208b6a7a71ddf8600a426722a8048bc4ff519b40b43d841b159f82d953".into(),
+            "c961bb2f0d4659d2fe0fa4f3ed04dd97b178b99558c103f3abba616c5d02457a".into(),
         )
     );
     assert_eq!(
         event_vector,
         (
-            "012a0000000000000000645a305af69f71da9b6d7990ec909a661a7b3b47a86edd3cb70b2fa06f801b01d80da8dcced3cbc6eeddce84d9e6420390e20a260fb8f4573e7890cb32b6f9640000000000589a5fa09aa6e8f47096c82a566389a6d725f983212121212121212121212121212121212121212165000000000000000200000000000000".into(),
-            "a9c0c299f92bdb02e7ed3fe64ec03511d2d062380f11cb89a38d1e99c6569438".into(),
+            "012a00000000000000635244c39733e498a081268d0cee9ec955e46ddd865e10e402a0bafad5cdc3f10111ccb47f1c2d204d83a8ecc954089f773988e8a135b8e8062f12c58f038bb8200000000000589a5fa09aa6e8f47096c82a566389a6d725f983212121212121212121212121212121212121212165000000000000000200000000000000".into(),
+            "4365445db0d1e1165fbb80a8acc4227601449d3904121ae34bbf6ba0bdcc8701".into(),
         )
     );
 }

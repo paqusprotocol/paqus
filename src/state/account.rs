@@ -194,7 +194,8 @@ impl Account {
         }
 
         let total = transaction
-            .amount
+            .total_amount()
+            .map_err(|_| StateError::BalanceOverflow)?
             .0
             .checked_add(transaction.fee.0)
             .ok_or(StateError::BalanceOverflow)?;

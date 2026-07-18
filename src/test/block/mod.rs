@@ -27,6 +27,46 @@ fn signed_transaction(nonce: u64) -> SignedTransaction {
     SignedTransaction::new(transaction, keypair.public_key, signature)
 }
 
+fn signed_transaction_for_keypair(
+    keypair: &crate::crypto::KeyPair,
+    nonce: u64,
+) -> SignedTransaction {
+    let transaction = Transaction::new(
+        address_from_public_key(&keypair.public_key),
+        Address([(nonce as u8).saturating_add(2); 20]),
+        Amount(10),
+        Amount(TEST_FEE),
+        Nonce(nonce),
+    );
+    let signature = sign(&keypair.secret_key, &transaction.signing_bytes());
+    SignedTransaction::new(transaction, keypair.public_key, signature)
+}
+
+#[test]
+fn block_wire_deduplicates_repeated_witness_public_keys() {
+    let keypair = generate_keypair();
+    let transactions = vec![
+        signed_transaction_for_keypair(&keypair, 1),
+        signed_transaction_for_keypair(&keypair, 2),
+        signed_transaction_for_keypair(&keypair, 3),
+    ];
+    let standalone_size = transactions
+        .iter()
+        .map(SignedTransaction::serialized_size)
+        .sum::<usize>();
+    let block = Block::new(
+        Height(1),
+        Hash([0; crate::crypto::HASH_SIZE]),
+        miner(),
+        1_700_000_000,
+        Nonce(42),
+        transactions,
+    );
+    let encoded = block_bytes(&block);
+    assert_eq!(decode_block(&encoded).unwrap(), block);
+    assert!(standalone_size.saturating_sub(encoded.len()) > crate::crypto::PUBLIC_KEY_SIZE);
+}
+
 fn miner() -> Address {
     Address([9; 20])
 }

@@ -28,17 +28,18 @@ pub struct BlockExecution {
 }
 
 impl TransactionExecution {
-    pub fn from_signed(transaction: &SignedTransaction) -> Self {
-        Self::from_payload(transaction.hash(), &transaction.transaction)
-    }
-
-    pub fn from_payload(transaction_hash: TransactionHash, transaction: &Transaction) -> Self {
+    pub fn from_output(
+        transaction_hash: TransactionHash,
+        transaction: &Transaction,
+        output: crate::transaction::TransferOutput,
+        fee: Amount,
+    ) -> Self {
         Self {
             transaction_hash,
             from: transaction.from,
-            to: transaction.to,
-            amount: transaction.amount,
-            fee: transaction.fee,
+            to: output.to,
+            amount: output.amount,
+            fee,
         }
     }
 }
@@ -61,10 +62,16 @@ pub(crate) fn apply_transaction_to_state(
     }
 
     let spendable_height = crate::block::Height(height.0.saturating_add(CONFIRMATION_DEPTH as u64));
-    let receiver = accounts
-        .entry(transaction.to)
-        .or_insert_with(|| Account::new(transaction.to, Amount(0)));
-    receiver.apply_incoming_transaction(transaction, spendable_height)?;
+    for output in transaction.outputs() {
+        let receiver = accounts
+            .entry(output.to)
+            .or_insert_with(|| Account::new(output.to, Amount(0)));
+        receiver.credit_locked(
+            output.amount,
+            spendable_height,
+            crate::state::CreditSource::Transaction,
+        )?;
+    }
 
     Ok(())
 }
@@ -126,15 +133,17 @@ impl Ledger {
 
         for signed in &block.transactions {
             let tx = &signed.transaction;
-            emit(
-                Some(tx.hash()),
-                ProtocolEventKind::Transfer {
-                    from: tx.from,
-                    to: tx.to,
-                    amount: tx.amount,
-                    fee: tx.fee,
-                },
-            );
+            for (index, output) in tx.outputs().enumerate() {
+                emit(
+                    Some(tx.hash()),
+                    ProtocolEventKind::Transfer {
+                        from: tx.from,
+                        to: output.to,
+                        amount: output.amount,
+                        fee: if index == 0 { tx.fee } else { Amount(0) },
+                    },
+                );
+            }
         }
         for signed in &block.ecash_transactions {
             let tx = &signed.transaction;
@@ -189,7 +198,9 @@ impl Ledger {
     ) -> Result<(), LedgerError> {
         apply_transaction_to_state(&mut self.accounts, transaction, height)?;
         self.refresh_account_state(&transaction.from);
-        self.refresh_account_state(&transaction.to);
+        for output in transaction.outputs() {
+            self.refresh_account_state(&output.to);
+        }
         Ok(())
     }
 
@@ -233,7 +244,24 @@ impl Ledger {
             transactions: block
                 .transactions
                 .iter()
-                .map(TransactionExecution::from_signed)
+                .flat_map(|signed| {
+                    signed
+                        .transaction
+                        .outputs()
+                        .enumerate()
+                        .map(|(index, output)| {
+                            TransactionExecution::from_output(
+                                signed.hash(),
+                                &signed.transaction,
+                                output,
+                                if index == 0 {
+                                    signed.transaction.fee
+                                } else {
+                                    Amount(0)
+                                },
+                            )
+                        })
+                })
                 .collect(),
         };
 

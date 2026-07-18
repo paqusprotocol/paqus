@@ -206,6 +206,13 @@ impl ValidityWindow {
 
 const TRANSACTION_SIGNATURE_DOMAIN: &[u8] = b"PAQUSCORE_TX_V1";
 pub const TRANSACTION_VERSION: u8 = 1;
+pub const MAX_BATCH_OUTPUTS: usize = 64;
+
+#[derive(BorshSerialize, BorshDeserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct TransferOutput {
+    pub to: Address,
+    pub amount: Amount,
+}
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Transaction {
@@ -213,6 +220,7 @@ pub struct Transaction {
     pub from: Address,
     pub to: Address,
     pub amount: Amount,
+    pub additional_outputs: Vec<TransferOutput>,
     pub fee: Amount,
     pub nonce: AccountNonce,
     pub timestamp: u64,
@@ -243,6 +251,7 @@ impl Transaction {
             from,
             to,
             amount,
+            additional_outputs: Vec::new(),
             fee,
             nonce,
             timestamp,
@@ -255,6 +264,26 @@ impl Transaction {
         self
     }
 
+    pub fn with_additional_outputs(mut self, outputs: Vec<TransferOutput>) -> Self {
+        self.additional_outputs = outputs;
+        self
+    }
+
+    pub fn outputs(&self) -> impl Iterator<Item = TransferOutput> + '_ {
+        std::iter::once(TransferOutput {
+            to: self.to,
+            amount: self.amount,
+        })
+        .chain(self.additional_outputs.iter().copied())
+    }
+
+    pub fn total_amount(&self) -> Result<Amount, TransactionError> {
+        self.outputs()
+            .try_fold(0_u64, |total, output| total.checked_add(output.amount.0))
+            .map(Amount)
+            .ok_or(TransactionError::AmountOverflow)
+    }
+
     pub fn validate(&self) -> Result<(), TransactionError> {
         if self.version != TRANSACTION_VERSION {
             return Err(TransactionError::UnsupportedVersion);
@@ -265,6 +294,22 @@ impl Transaction {
         if self.from == self.to {
             return Err(TransactionError::SameSenderAndRecipient);
         }
+        if self.additional_outputs.len() + 1 > MAX_BATCH_OUTPUTS {
+            return Err(TransactionError::TooManyOutputs);
+        }
+        let mut recipients = std::collections::BTreeSet::new();
+        for output in self.outputs() {
+            if output.amount.0 == 0 {
+                return Err(TransactionError::ZeroAmount);
+            }
+            if output.to == self.from {
+                return Err(TransactionError::SameSenderAndRecipient);
+            }
+            if !recipients.insert(output.to) {
+                return Err(TransactionError::DuplicateRecipient);
+            }
+        }
+        self.total_amount()?;
         self.validity.validate()
     }
 

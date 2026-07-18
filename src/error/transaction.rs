@@ -8,6 +8,9 @@ pub enum TransactionError {
     Expired,
     FromFuture,
     SameSenderAndRecipient,
+    TooManyOutputs,
+    DuplicateRecipient,
+    AmountOverflow,
     EmptyPublicKey,
     EmptySignature,
     TransactionTooLarge,
@@ -37,6 +40,11 @@ impl fmt::Display for TransactionError {
             TransactionError::SameSenderAndRecipient => {
                 f.write_str("sender and recipient address must be different")
             }
+            TransactionError::TooManyOutputs => f.write_str("transaction has too many outputs"),
+            TransactionError::DuplicateRecipient => {
+                f.write_str("transaction contains a duplicate recipient")
+            }
+            TransactionError::AmountOverflow => f.write_str("transaction output total overflow"),
             TransactionError::EmptyPublicKey => {
                 f.write_str("signed transaction public key is empty")
             }

@@ -3,7 +3,8 @@ use crate::consensus::supply::Amount;
 use crate::crypto::{Address, PublicKey, Signature};
 use crate::crypto::{address_from_public_key, generate_keypair, sign};
 use crate::transaction::{
-    SignedProtocolTransaction, SignedTransaction, Transaction, TransactionError, ValidityWindow,
+    SignedProtocolTransaction, SignedTransaction, Transaction, TransactionError, TransferOutput,
+    ValidityWindow,
 };
 
 const TEST_FEE: u64 = 2;
@@ -55,6 +56,39 @@ fn allows_zero_fee_at_core_validation_layer() {
     transaction.fee = Amount(0);
 
     assert_eq!(transaction.validate(), Ok(()));
+}
+
+#[test]
+fn batch_payment_signs_multiple_unique_outputs_once() {
+    let keypair = generate_keypair();
+    let from = address_from_public_key(&keypair.public_key);
+    let transaction = Transaction::new(from, address(2), Amount(10), Amount(2), Nonce(0))
+        .with_additional_outputs(vec![
+            TransferOutput {
+                to: address(3),
+                amount: Amount(20),
+            },
+            TransferOutput {
+                to: address(4),
+                amount: Amount(30),
+            },
+        ]);
+    assert_eq!(transaction.total_amount(), Ok(Amount(60)));
+    let signature = sign(&keypair.secret_key, &transaction.signing_bytes());
+    let signed = SignedTransaction::new(transaction, keypair.public_key, signature);
+    assert_eq!(signed.validate_signed(), Ok(()));
+}
+
+#[test]
+fn batch_payment_rejects_duplicate_recipient() {
+    let transaction = transaction().with_additional_outputs(vec![TransferOutput {
+        to: address(2),
+        amount: Amount(1),
+    }]);
+    assert_eq!(
+        transaction.validate(),
+        Err(TransactionError::DuplicateRecipient)
+    );
 }
 
 #[test]
