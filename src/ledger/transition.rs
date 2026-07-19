@@ -6,7 +6,7 @@ use crate::crypto::{BlockHash, StateRoot, TransactionHash};
 use crate::event::{ProtocolEvent, ProtocolEventKind};
 use crate::ledger::{CONFIRMATION_DEPTH, Ledger, LedgerError};
 use crate::state::Account;
-use crate::transaction::{EcashTransactionKind, SignedTransaction, Transaction};
+use crate::transaction::{QCashTransactionKind, SignedTransaction, Transaction};
 use std::collections::BTreeMap;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -145,24 +145,24 @@ impl Ledger {
                 );
             }
         }
-        for signed in &block.ecash_transactions {
+        for signed in &block.qcash_transactions {
             let tx = &signed.transaction;
             let kind = match &tx.kind {
-                EcashTransactionKind::WithdrawCash { amount, .. } => {
-                    ProtocolEventKind::EcashWithdrawn {
+                QCashTransactionKind::WithdrawCash { amount, .. } => {
+                    ProtocolEventKind::QCashWithdrawn {
                         signer: tx.signer,
                         amount: *amount,
                     }
                 }
-                EcashTransactionKind::DepositCash {
+                QCashTransactionKind::DepositCash {
                     recipient,
                     metadata,
-                } => ProtocolEventKind::EcashDeposited {
+                } => ProtocolEventKind::QCashDeposited {
                     signer: tx.signer,
                     recipient: *recipient,
                     amount: metadata
                         .amount()
-                        .expect("an applied eCash deposit has a valid amount"),
+                        .expect("an applied QCash deposit has a valid amount"),
                 },
             };
             emit(Some(tx.hash()), kind);
@@ -276,14 +276,17 @@ impl Ledger {
         self.chain.validate_next_block(block)?;
 
         let mut staged = self.clone();
+        // UTXO maturity is a consensus transition and must be committed by the
+        // candidate block's protocol state root before inputs are evaluated.
+        staged.finalize_qcash_at(block.height());
 
         for transaction in &block.transactions {
             staged.apply_transaction_at(&transaction.transaction, block.height())?;
         }
 
         let block_hash = block.hash();
-        for transaction in &block.ecash_transactions {
-            staged.apply_signed_ecash_transaction_in_block(
+        for transaction in &block.qcash_transactions {
+            staged.apply_signed_qcash_transaction_in_block(
                 transaction,
                 block.height(),
                 block_hash,

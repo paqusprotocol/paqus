@@ -4,7 +4,7 @@ pub use crate::crypto::{HashDomain, domain_hash, hash_bytes};
 use crate::error::CodecError;
 use crate::event::{MAX_PROTOCOL_EVENT_SIZE, ProtocolEvent};
 use crate::transaction::{
-    EcashTransaction, SignedEcashTransaction, SignedProtocolTransaction, SignedTransaction,
+    QCashTransaction, SignedProtocolTransaction, SignedQCashTransaction, SignedTransaction,
     Transaction, TransactionFamily,
 };
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -136,22 +136,22 @@ pub fn decode_signed_transaction(bytes: &[u8]) -> Result<SignedTransaction, Code
     Ok(transaction)
 }
 
-pub fn decode_ecash_transaction(bytes: &[u8]) -> Result<EcashTransaction, CodecError> {
-    if bytes.len() > crate::transaction::ecash::MAX_ECASH_TX_SIZE {
+pub fn decode_qcash_transaction(bytes: &[u8]) -> Result<QCashTransaction, CodecError> {
+    if bytes.len() > crate::transaction::qcash::MAX_QCASH_TX_SIZE {
         return Err(CodecError::InvalidTransaction);
     }
-    let transaction: EcashTransaction = canonical_deserialize(bytes)?;
+    let transaction: QCashTransaction = canonical_deserialize(bytes)?;
     transaction
         .validate()
         .map_err(|_| CodecError::InvalidTransaction)?;
     Ok(transaction)
 }
 
-pub fn decode_signed_ecash_transaction(bytes: &[u8]) -> Result<SignedEcashTransaction, CodecError> {
-    if bytes.len() > crate::transaction::ecash::MAX_ECASH_TX_SIZE {
+pub fn decode_signed_qcash_transaction(bytes: &[u8]) -> Result<SignedQCashTransaction, CodecError> {
+    if bytes.len() > crate::transaction::qcash::MAX_QCASH_TX_SIZE {
         return Err(CodecError::InvalidTransaction);
     }
-    let transaction: SignedEcashTransaction = canonical_deserialize(bytes)?;
+    let transaction: SignedQCashTransaction = canonical_deserialize(bytes)?;
     transaction
         .validate_signed()
         .map_err(|_| CodecError::InvalidTransaction)?;
@@ -176,7 +176,7 @@ pub fn decode_signed_protocol_transaction_at<F>(
         SignedProtocolTransaction::Transfer(transaction) => {
             transaction.validate_signed_at_height(block_timestamp, height)
         }
-        SignedProtocolTransaction::Ecash(transaction) => {
+        SignedProtocolTransaction::QCash(transaction) => {
             transaction.validate_signed_for_height(height)
         }
     };

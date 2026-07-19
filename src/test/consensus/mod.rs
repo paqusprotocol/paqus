@@ -267,6 +267,10 @@ fn asert_clamps_to_minimum_and_rejects_invalid_anchor() {
 
 #[test]
 fn uses_block_reward_until_tail_emission_starts() {
+    assert_eq!(BLOCK_TIME, 5 * 60);
+    assert_eq!(BLOCK_REWARD, 25 * crate::consensus::supply::XPQ);
+    assert_eq!(TAIL_EMISSION, 74_700);
+    assert_eq!(TAIL_EMISSION_START_HEIGHT, 525_600);
     assert_eq!(block_reward(Height(0)), Amount(BLOCK_REWARD));
     assert_eq!(
         block_reward(Height(tail_emission_start_height().saturating_sub(1))),

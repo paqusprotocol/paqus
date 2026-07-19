@@ -8,10 +8,10 @@ use crate::crypto::{
     Address, Hash, StateRoot, address_from_public_key, hash_bytes, public_key_from_seed,
     sign_from_seed,
 };
-use crate::ecash::{CashDenomination, WithdrawCashMetadata, cash_coin_commitment};
 use crate::event::{ProtocolEvent, ProtocolEventKind};
+use crate::qcash::{CashDenomination, WithdrawCashMetadata, cash_coin_commitment};
 use crate::transaction::{
-    EcashTransaction, SignedEcashTransaction, SignedProtocolTransaction, SignedTransaction,
+    QCashTransaction, SignedProtocolTransaction, SignedQCashTransaction, SignedTransaction,
     Transaction, TransactionFamily, ValidityWindow,
 };
 
@@ -33,10 +33,10 @@ fn protocol_vector_transactions() -> Vec<SignedProtocolTransaction> {
         sign_from_seed(&transfer_seed, &transfer.signing_bytes()),
     );
 
-    let ecash_seed = [2; 32];
-    let ecash_key = public_key_from_seed(&ecash_seed);
-    let ecash = EcashTransaction::withdraw(
-        address_from_public_key(&ecash_key),
+    let qcash_seed = [2; 32];
+    let qcash_key = public_key_from_seed(&qcash_seed);
+    let qcash = QCashTransaction::withdraw(
+        address_from_public_key(&qcash_key),
         Amount(XPQ),
         Amount(3),
         Nonce(4),
@@ -49,13 +49,13 @@ fn protocol_vector_transactions() -> Vec<SignedProtocolTransaction> {
     )
     .with_timestamp(1_700_000_042)
     .with_validity_window(ValidityWindow::new(Height(40), Height(80)).unwrap());
-    let signed_ecash = SignedEcashTransaction::new(
-        ecash.clone(),
-        ecash_key,
-        sign_from_seed(&ecash_seed, &ecash.signing_bytes()),
+    let signed_qcash = SignedQCashTransaction::new(
+        qcash.clone(),
+        qcash_key,
+        sign_from_seed(&qcash_seed, &qcash.signing_bytes()),
     );
 
-    vec![signed_transfer.into(), signed_ecash.into()]
+    vec![signed_transfer.into(), signed_qcash.into()]
 }
 
 #[test]
@@ -98,7 +98,7 @@ fn canonical_protocol_envelope_block_and_event_vectors_are_stable() {
             _ => unreachable!(),
         }],
         vec![match &transactions[1] {
-            SignedProtocolTransaction::Ecash(tx) => tx.clone(),
+            SignedProtocolTransaction::QCash(tx) => tx.clone(),
             _ => unreachable!(),
         }],
     )
@@ -159,7 +159,7 @@ fn canonical_protocol_envelope_block_and_event_vectors_are_stable() {
                 "14849b0c9ecd9e5583425efc2e62fab458af202afbe2a09079ee702c1ea63214".into(),
             ),
             (
-                TransactionFamily::Ecash,
+                TransactionFamily::QCash,
                 7332,
                 "5b8fe8c217ea846185a4257824c7da1a0c82335b746373ef8d1b6714cf13f041".into(),
                 "78bf83e96dc4448a42437951ea3d0b2259b5da5f0516808a763dca69f0f5db21".into(),
@@ -171,17 +171,17 @@ fn canonical_protocol_envelope_block_and_event_vectors_are_stable() {
         block_vector,
         (
             14889,
-            "1599c7615f4159aac1e682e2b66f6c7ecc33388411413d30280da11b2f43b62b".into(),
-            "635244c39733e498a081268d0cee9ec955e46ddd865e10e402a0bafad5cdc3f1".into(),
-            "152f8f208b6a7a71ddf8600a426722a8048bc4ff519b40b43d841b159f82d953".into(),
+            "ad93514fa47195f302d2a45e83123f9e91fa4b3c50e8d467b81e95e07f9866ca".into(),
+            "f97d7ac8e332d51cdbdc2bf73c88aa9573989bc52b6bc431e0b8ab3244c88176".into(),
+            "5f62ce32107212464263f1b42827505d56f33f6f5e828d9a4d8167e3206b5d7d".into(),
             "c961bb2f0d4659d2fe0fa4f3ed04dd97b178b99558c103f3abba616c5d02457a".into(),
         )
     );
     assert_eq!(
         event_vector,
         (
-            "012a00000000000000635244c39733e498a081268d0cee9ec955e46ddd865e10e402a0bafad5cdc3f10111ccb47f1c2d204d83a8ecc954089f773988e8a135b8e8062f12c58f038bb8200000000000589a5fa09aa6e8f47096c82a566389a6d725f983212121212121212121212121212121212121212165000000000000000200000000000000".into(),
-            "4365445db0d1e1165fbb80a8acc4227601449d3904121ae34bbf6ba0bdcc8701".into(),
+            "012a00000000000000f97d7ac8e332d51cdbdc2bf73c88aa9573989bc52b6bc431e0b8ab3244c881760111ccb47f1c2d204d83a8ecc954089f773988e8a135b8e8062f12c58f038bb8200000000000589a5fa09aa6e8f47096c82a566389a6d725f983212121212121212121212121212121212121212165000000000000000200000000000000".into(),
+            "9b8ee72c78a3e556315a8410318fdb669720d3371433b84c02bf465244454253".into(),
         )
     );
 }

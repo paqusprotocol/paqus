@@ -7,30 +7,30 @@ use crate::crypto::{address_from_public_key, verify};
 pub use crate::error::TransactionError;
 use borsh::{BorshDeserialize, BorshSerialize};
 
-pub mod ecash;
-pub use ecash::{EcashTransaction, EcashTransactionKind, SignedEcashTransaction};
+pub mod qcash;
+pub use qcash::{QCashTransaction, QCashTransactionKind, SignedQCashTransaction};
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum SignedProtocolTransaction {
     Transfer(SignedTransaction),
-    Ecash(SignedEcashTransaction),
+    QCash(SignedQCashTransaction),
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum TransactionFamily {
     Transfer,
-    Ecash,
+    QCash,
 }
 
 /// Maximum canonical unified envelope size. Authorization is the largest family.
-pub const MAX_PROTOCOL_TRANSACTION_SIZE: usize = ecash::MAX_ECASH_TX_SIZE + 1;
+pub const MAX_PROTOCOL_TRANSACTION_SIZE: usize = qcash::MAX_QCASH_TX_SIZE + 1;
 
 impl TransactionFamily {
     /// Canonical Borsh enum tag used by `SignedProtocolTransaction`.
     pub const fn envelope_tag(self) -> u8 {
         match self {
             Self::Transfer => 0,
-            Self::Ecash => 1,
+            Self::QCash => 1,
         }
     }
 }
@@ -39,14 +39,14 @@ impl SignedProtocolTransaction {
     pub fn family(&self) -> TransactionFamily {
         match self {
             Self::Transfer(_) => TransactionFamily::Transfer,
-            Self::Ecash(_) => TransactionFamily::Ecash,
+            Self::QCash(_) => TransactionFamily::QCash,
         }
     }
 
     pub fn hash(&self) -> TransactionHash {
         match self {
             Self::Transfer(tx) => tx.hash(),
-            Self::Ecash(tx) => tx.hash(),
+            Self::QCash(tx) => tx.hash(),
         }
     }
 
@@ -59,7 +59,7 @@ impl SignedProtocolTransaction {
     pub fn stripped_size(&self) -> usize {
         1 + match self {
             Self::Transfer(tx) => tx.transaction.to_bytes().len(),
-            Self::Ecash(tx) => tx.transaction.to_bytes().len(),
+            Self::QCash(tx) => tx.transaction.to_bytes().len(),
         }
     }
 
@@ -82,28 +82,28 @@ impl SignedProtocolTransaction {
     pub fn signer(&self) -> Address {
         match self {
             Self::Transfer(tx) => tx.transaction.from,
-            Self::Ecash(tx) => tx.transaction.signer,
+            Self::QCash(tx) => tx.transaction.signer,
         }
     }
 
     pub fn nonce(&self) -> AccountNonce {
         match self {
             Self::Transfer(tx) => tx.transaction.nonce,
-            Self::Ecash(tx) => tx.transaction.nonce,
+            Self::QCash(tx) => tx.transaction.nonce,
         }
     }
 
     pub fn fee(&self) -> Amount {
         match self {
             Self::Transfer(tx) => tx.transaction.fee,
-            Self::Ecash(tx) => tx.transaction.fee,
+            Self::QCash(tx) => tx.transaction.fee,
         }
     }
 
     pub fn validity(&self) -> ValidityWindow {
         match self {
             Self::Transfer(tx) => tx.transaction.validity,
-            Self::Ecash(tx) => tx.transaction.validity,
+            Self::QCash(tx) => tx.transaction.validity,
         }
     }
 
@@ -114,7 +114,7 @@ impl SignedProtocolTransaction {
     pub fn witness_public_keys(&self) -> Vec<&PublicKey> {
         match self {
             Self::Transfer(tx) => vec![&tx.witness.public_key],
-            Self::Ecash(tx) => vec![&tx.witness.public_key],
+            Self::QCash(tx) => vec![&tx.witness.public_key],
         }
     }
 
@@ -122,7 +122,7 @@ impl SignedProtocolTransaction {
     pub fn single_witness_public_key(&self) -> Option<&PublicKey> {
         match self {
             Self::Transfer(tx) => Some(&tx.witness.public_key),
-            Self::Ecash(tx) => Some(&tx.witness.public_key),
+            Self::QCash(tx) => Some(&tx.witness.public_key),
         }
     }
 
@@ -144,9 +144,9 @@ impl From<SignedTransaction> for SignedProtocolTransaction {
         Self::Transfer(transaction)
     }
 }
-impl From<SignedEcashTransaction> for SignedProtocolTransaction {
-    fn from(transaction: SignedEcashTransaction) -> Self {
-        Self::Ecash(transaction)
+impl From<SignedQCashTransaction> for SignedProtocolTransaction {
+    fn from(transaction: SignedQCashTransaction) -> Self {
+        Self::QCash(transaction)
     }
 }
 

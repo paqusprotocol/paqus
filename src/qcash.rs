@@ -1,4 +1,7 @@
-//! Deterministic metadata primitives for representing XPQ as eCash coins.
+//! Deterministic metadata primitives for representing XPQ as QCash coins.
+//!
+//! QCash is Paqus bearer cash authorized with post-quantum signatures. It is
+//! not a Chaumian blind-signature cash protocol.
 
 use crate::consensus::supply::{Amount, XPQ};
 use crate::crypto::{
@@ -65,7 +68,7 @@ impl BorshDeserialize for CashDenomination {
             100 => Ok(Self::OneHundred),
             value => Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
-                format!("unsupported eCash denomination {value}"),
+                format!("unsupported QCash denomination {value}"),
             )),
         }
     }
@@ -83,7 +86,7 @@ impl BorshDeserialize for CashDenomination {
     BorshSerialize,
     BorshDeserialize,
 )]
-pub enum EcashOperation {
+pub enum QCashOperation {
     Deposit,
     Withdraw,
 }
@@ -106,12 +109,12 @@ pub struct CashCoin {
     pub count: u64,
 }
 
-/// Canonical eCash metadata. Coin runs must be unique and sorted largest first.
+/// Canonical QCash metadata. Coin runs must be unique and sorted largest first.
 #[derive(
     Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, BorshSerialize, BorshDeserialize,
 )]
-pub struct EcashMetadata {
-    pub operation: EcashOperation,
+pub struct QCashMetadata {
+    pub operation: QCashOperation,
     pub coins: Vec<CashCoin>,
 }
 
@@ -128,7 +131,7 @@ pub struct EcashMetadata {
     BorshSerialize,
     BorshDeserialize,
 )]
-pub struct EcashOutput {
+pub struct QCashOutput {
     pub coin_index: u32,
     pub denomination: CashDenomination,
     /// Commitment to wallet-held secret material; the secret is never put on-chain.
@@ -140,7 +143,7 @@ pub struct EcashOutput {
     Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, BorshSerialize, BorshDeserialize,
 )]
 pub struct WithdrawCashMetadata {
-    pub outputs: Vec<EcashOutput>,
+    pub outputs: Vec<QCashOutput>,
 }
 
 /// Automatic whole-XPQ cash selection with the unconverted on-chain remainder.
@@ -191,7 +194,7 @@ pub struct DepositCashMetadata {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum EcashError {
+pub enum QCashError {
     ZeroAmount,
     FractionalXpQ,
     EmptyCoins,
@@ -213,30 +216,30 @@ pub enum EcashError {
     CashFileTooLarge,
 }
 
-impl fmt::Display for EcashError {
+impl fmt::Display for QCashError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::ZeroAmount => f.write_str("eCash amount must be greater than zero"),
-            Self::FractionalXpQ => f.write_str("eCash amount must use whole XPQ units"),
-            Self::EmptyCoins => f.write_str("eCash metadata must contain at least one coin"),
-            Self::ZeroCoinCount => f.write_str("eCash coin count must be greater than zero"),
+            Self::ZeroAmount => f.write_str("QCash amount must be greater than zero"),
+            Self::FractionalXpQ => f.write_str("QCash amount must use whole XPQ units"),
+            Self::EmptyCoins => f.write_str("QCash metadata must contain at least one coin"),
+            Self::ZeroCoinCount => f.write_str("QCash coin count must be greater than zero"),
             Self::NonCanonicalCoins => {
-                f.write_str("eCash coins must be unique and ordered by descending denomination")
+                f.write_str("QCash coins must be unique and ordered by descending denomination")
             }
-            Self::AmountOverflow => f.write_str("eCash amount exceeds the supported amount range"),
-            Self::EmptyOutputs => f.write_str("withdraw must contain at least one eCash output"),
+            Self::AmountOverflow => f.write_str("QCash amount exceeds the supported amount range"),
+            Self::EmptyOutputs => f.write_str("withdraw must contain at least one QCash output"),
             Self::InvalidCoinIndex => {
-                f.write_str("eCash output indexes must be contiguous from zero")
+                f.write_str("QCash output indexes must be contiguous from zero")
             }
-            Self::DuplicateCommitment => f.write_str("eCash output commitments must be unique"),
+            Self::DuplicateCommitment => f.write_str("QCash output commitments must be unique"),
             Self::CommitmentCountMismatch => {
                 f.write_str("wallet commitment count does not match cash coin count")
             }
             Self::DenominationAmountMismatch => {
-                f.write_str("eCash output denominations do not match withdraw amount")
+                f.write_str("QCash output denominations do not match withdraw amount")
             }
             Self::NoCashableAmount => {
-                f.write_str("requested amount contains less than one whole XPQ for eCash")
+                f.write_str("requested amount contains less than one whole XPQ for QCash")
             }
             Self::UnsupportedCashFileVersion => {
                 f.write_str("cash coin file version is unsupported")
@@ -262,7 +265,7 @@ pub fn cash_coin_commitment(opening_secret: &[u8; 32]) -> [u8; 32] {
 }
 
 pub fn cash_spend_public_key_commitment(public_key: &PublicKey) -> [u8; 32] {
-    domain_hash(HashDomain::EcashCommitment, &public_key.0).0
+    domain_hash(HashDomain::QCashCommitment, &public_key.0).0
 }
 
 fn deposit_authorization_bytes(
@@ -272,72 +275,73 @@ fn deposit_authorization_bytes(
 ) -> Vec<u8> {
     let payload = crate::codec::canonical_bytes(&(coin_id, denomination, recipient));
     let mut bytes = Vec::with_capacity(32 + payload.len());
+    // Keep the version-1 domain bytes stable across the public QCash rename.
     bytes.extend_from_slice(b"PAQUS_ECASH_DEPOSIT_AUTH_V1");
     bytes.extend_from_slice(&payload);
     bytes
 }
 
 /// Derives the opaque identifier shared by consensus state and the bearer file.
-pub fn cash_coin_id_bytes(withdraw_tx_hash: TransactionHash, output: &EcashOutput) -> [u8; 32] {
+pub fn cash_coin_id_bytes(withdraw_tx_hash: TransactionHash, output: &QCashOutput) -> [u8; 32] {
     let payload = crate::codec::canonical_bytes(&(withdraw_tx_hash, output));
-    domain_hash(HashDomain::EcashCoin, &payload).0
+    domain_hash(HashDomain::QCashCoin, &payload).0
 }
 
 /// Encodes one bearer coin using the only supported `.XPQ` binary format.
-pub fn encode_cash_coin_file(file: &CashCoinFile) -> Result<Vec<u8>, EcashError> {
+pub fn encode_cash_coin_file(file: &CashCoinFile) -> Result<Vec<u8>, QCashError> {
     if file.version != CASH_FILE_VERSION {
-        return Err(EcashError::UnsupportedCashFileVersion);
+        return Err(QCashError::UnsupportedCashFileVersion);
     }
     let payload = crate::codec::canonical_bytes(file);
-    let payload_len = u32::try_from(payload.len()).map_err(|_| EcashError::CashFileTooLarge)?;
-    let checksum = domain_hash(HashDomain::EcashFile, &payload).0;
+    let payload_len = u32::try_from(payload.len()).map_err(|_| QCashError::CashFileTooLarge)?;
+    let checksum = domain_hash(HashDomain::QCashFile, &payload).0;
     let mut bytes = Vec::with_capacity(8 + 4 + payload.len() + checksum.len());
     bytes.extend_from_slice(&CASH_FILE_MAGIC);
     bytes.extend_from_slice(&payload_len.to_le_bytes());
     bytes.extend_from_slice(&payload);
     bytes.extend_from_slice(&checksum);
     if bytes.len() > MAX_CASH_FILE_SIZE {
-        return Err(EcashError::CashFileTooLarge);
+        return Err(QCashError::CashFileTooLarge);
     }
     Ok(bytes)
 }
 
 /// Strictly decodes and checks a canonical `.XPQ` bearer coin file.
-pub fn decode_cash_coin_file(bytes: &[u8]) -> Result<CashCoinFile, EcashError> {
+pub fn decode_cash_coin_file(bytes: &[u8]) -> Result<CashCoinFile, QCashError> {
     const PREFIX_LEN: usize = 12;
     const CHECKSUM_LEN: usize = 32;
     if bytes.len() > MAX_CASH_FILE_SIZE || bytes.len() < PREFIX_LEN + CHECKSUM_LEN {
         return Err(if bytes.len() > MAX_CASH_FILE_SIZE {
-            EcashError::CashFileTooLarge
+            QCashError::CashFileTooLarge
         } else {
-            EcashError::InvalidCashFile
+            QCashError::InvalidCashFile
         });
     }
     if bytes[..8] != CASH_FILE_MAGIC {
-        return Err(EcashError::InvalidCashFile);
+        return Err(QCashError::InvalidCashFile);
     }
     let payload_len = u32::from_le_bytes(
         bytes[8..12]
             .try_into()
-            .map_err(|_| EcashError::InvalidCashFile)?,
+            .map_err(|_| QCashError::InvalidCashFile)?,
     ) as usize;
     let expected_len = PREFIX_LEN
         .checked_add(payload_len)
         .and_then(|length| length.checked_add(CHECKSUM_LEN))
-        .ok_or(EcashError::InvalidCashFile)?;
+        .ok_or(QCashError::InvalidCashFile)?;
     if bytes.len() != expected_len {
-        return Err(EcashError::InvalidCashFile);
+        return Err(QCashError::InvalidCashFile);
     }
 
     let payload = &bytes[PREFIX_LEN..PREFIX_LEN + payload_len];
     let checksum = &bytes[PREFIX_LEN + payload_len..];
-    if checksum != domain_hash(HashDomain::EcashFile, payload).0 {
-        return Err(EcashError::InvalidCashFile);
+    if checksum != domain_hash(HashDomain::QCashFile, payload).0 {
+        return Err(QCashError::InvalidCashFile);
     }
     let file: CashCoinFile =
-        crate::codec::canonical_deserialize(payload).map_err(|_| EcashError::InvalidCashFile)?;
+        crate::codec::canonical_deserialize(payload).map_err(|_| QCashError::InvalidCashFile)?;
     if file.version != CASH_FILE_VERSION || crate::codec::canonical_bytes(&file) != payload {
-        return Err(EcashError::InvalidCashFile);
+        return Err(QCashError::InvalidCashFile);
     }
     Ok(file)
 }
@@ -345,9 +349,9 @@ pub fn decode_cash_coin_file(bytes: &[u8]) -> Result<CashCoinFile, EcashError> {
 impl CashCoinFile {
     pub fn new(
         withdraw_tx_hash: TransactionHash,
-        output: &EcashOutput,
+        output: &QCashOutput,
         opening_secret: [u8; 32],
-    ) -> Result<Self, EcashError> {
+    ) -> Result<Self, QCashError> {
         let file = Self {
             version: CASH_FILE_VERSION,
             coin_id: cash_coin_id_bytes(withdraw_tx_hash, output),
@@ -355,14 +359,14 @@ impl CashCoinFile {
             opening_secret,
         };
         if cash_coin_commitment(&file.opening_secret) != output.commitment {
-            return Err(EcashError::InvalidCommitment);
+            return Err(QCashError::InvalidCommitment);
         }
         Ok(file)
     }
 
-    pub fn deposit_input(&self, recipient: Address) -> Result<DepositCashInput, EcashError> {
+    pub fn deposit_input(&self, recipient: Address) -> Result<DepositCashInput, QCashError> {
         if self.version != CASH_FILE_VERSION {
-            return Err(EcashError::UnsupportedCashFileVersion);
+            return Err(QCashError::UnsupportedCashFileVersion);
         }
         let spend_public_key = public_key_from_seed(&self.opening_secret);
         let message = deposit_authorization_bytes(self.coin_id, self.denomination, recipient);
@@ -381,13 +385,13 @@ impl CashCoinFile {
 }
 
 impl DepositCashMetadata {
-    pub fn from_inputs(inputs: Vec<DepositCashInput>) -> Result<Self, EcashError> {
+    pub fn from_inputs(inputs: Vec<DepositCashInput>) -> Result<Self, QCashError> {
         let metadata = Self { inputs };
         metadata.validate()?;
         Ok(metadata)
     }
 
-    pub fn new(files: &[CashCoinFile], recipient: Address) -> Result<Self, EcashError> {
+    pub fn new(files: &[CashCoinFile], recipient: Address) -> Result<Self, QCashError> {
         let inputs = files
             .iter()
             .map(|file| file.deposit_input(recipient))
@@ -397,41 +401,41 @@ impl DepositCashMetadata {
         Ok(metadata)
     }
 
-    pub fn validate_authorizations(&self, recipient: Address) -> Result<(), EcashError> {
+    pub fn validate_authorizations(&self, recipient: Address) -> Result<(), QCashError> {
         self.validate()?;
         for input in &self.inputs {
             let message = deposit_authorization_bytes(input.coin_id, input.denomination, recipient);
             if !verify(&input.spend_public_key, &message, &input.authorization) {
-                return Err(EcashError::InvalidDepositAuthorization);
+                return Err(QCashError::InvalidDepositAuthorization);
             }
         }
         Ok(())
     }
 
-    pub fn validate(&self) -> Result<(), EcashError> {
+    pub fn validate(&self) -> Result<(), QCashError> {
         use std::collections::BTreeSet;
         if self.inputs.is_empty() {
-            return Err(EcashError::EmptyDepositInputs);
+            return Err(QCashError::EmptyDepositInputs);
         }
         let mut references = BTreeSet::new();
         for input in &self.inputs {
             if input.version != CASH_FILE_VERSION {
-                return Err(EcashError::UnsupportedCashFileVersion);
+                return Err(QCashError::UnsupportedCashFileVersion);
             }
             if !references.insert(input.coin_id) {
-                return Err(EcashError::DuplicateDepositInput);
+                return Err(QCashError::DuplicateDepositInput);
             }
         }
         self.amount().map(|_| ())
     }
 
-    pub fn amount(&self) -> Result<Amount, EcashError> {
+    pub fn amount(&self) -> Result<Amount, QCashError> {
         self.inputs.iter().try_fold(Amount(0), |total, input| {
             total
                 .0
                 .checked_add(input.denomination.amount().0)
                 .map(Amount)
-                .ok_or(EcashError::AmountOverflow)
+                .ok_or(QCashError::AmountOverflow)
         })
     }
 }
@@ -463,17 +467,17 @@ impl DepositCashInput {
 
 impl WithdrawCashMetadata {
     /// Plans automatic denomination selection. Fractions remain on-chain.
-    pub fn plan_automatic(amount: Amount) -> Result<AutomaticWithdrawalPlan, EcashError> {
+    pub fn plan_automatic(amount: Amount) -> Result<AutomaticWithdrawalPlan, QCashError> {
         let cash_amount = Amount(amount.0 - (amount.0 % XPQ));
         let remainder = Amount(amount.0 % XPQ);
         if cash_amount.0 == 0 {
-            return Err(EcashError::NoCashableAmount);
+            return Err(QCashError::NoCashableAmount);
         }
 
         let runs = format_cash_coins(cash_amount)?;
         let mut denominations = Vec::new();
         for run in runs {
-            let count = usize::try_from(run.count).map_err(|_| EcashError::AmountOverflow)?;
+            let count = usize::try_from(run.count).map_err(|_| QCashError::AmountOverflow)?;
             denominations.extend(std::iter::repeat_n(run.denomination, count));
         }
         Ok(AutomaticWithdrawalPlan {
@@ -487,33 +491,33 @@ impl WithdrawCashMetadata {
     pub fn from_automatic_plan(
         plan: &AutomaticWithdrawalPlan,
         commitments: &[[u8; 32]],
-    ) -> Result<Self, EcashError> {
+    ) -> Result<Self, QCashError> {
         Self::with_denominations(plan.cash_amount, &plan.denominations, commitments)
     }
 
-    pub fn new(amount: Amount, commitments: &[[u8; 32]]) -> Result<Self, EcashError> {
+    pub fn new(amount: Amount, commitments: &[[u8; 32]]) -> Result<Self, QCashError> {
         let runs = format_cash_coins(amount)?;
         let coin_count = runs.iter().try_fold(0u64, |total, run| {
             total
                 .checked_add(run.count)
-                .ok_or(EcashError::AmountOverflow)
+                .ok_or(QCashError::AmountOverflow)
         })?;
         if coin_count != commitments.len() as u64 {
-            return Err(EcashError::CommitmentCountMismatch);
+            return Err(QCashError::CommitmentCountMismatch);
         }
 
         let mut outputs = Vec::with_capacity(commitments.len());
         let mut coin_index = 0u32;
         for run in runs {
             for _ in 0..run.count {
-                outputs.push(EcashOutput {
+                outputs.push(QCashOutput {
                     coin_index,
                     denomination: run.denomination,
                     commitment: commitments[coin_index as usize],
                 });
                 coin_index = coin_index
                     .checked_add(1)
-                    .ok_or(EcashError::AmountOverflow)?;
+                    .ok_or(QCashError::AmountOverflow)?;
             }
         }
         let metadata = Self { outputs };
@@ -525,16 +529,16 @@ impl WithdrawCashMetadata {
         amount: Amount,
         denominations: &[CashDenomination],
         commitments: &[[u8; 32]],
-    ) -> Result<Self, EcashError> {
+    ) -> Result<Self, QCashError> {
         if denominations.len() != commitments.len() {
-            return Err(EcashError::CommitmentCountMismatch);
+            return Err(QCashError::CommitmentCountMismatch);
         }
         let outputs = denominations
             .iter()
             .copied()
             .zip(commitments.iter().copied())
             .enumerate()
-            .map(|(coin_index, (denomination, commitment))| EcashOutput {
+            .map(|(coin_index, (denomination, commitment))| QCashOutput {
                 coin_index: coin_index as u32,
                 denomination,
                 commitment,
@@ -545,76 +549,76 @@ impl WithdrawCashMetadata {
         Ok(metadata)
     }
 
-    pub fn validate(&self) -> Result<(), EcashError> {
+    pub fn validate(&self) -> Result<(), QCashError> {
         use std::collections::BTreeSet;
 
         if self.outputs.is_empty() {
-            return Err(EcashError::EmptyOutputs);
+            return Err(QCashError::EmptyOutputs);
         }
         let mut commitments = BTreeSet::new();
         for (index, output) in self.outputs.iter().enumerate() {
             if output.coin_index as usize != index {
-                return Err(EcashError::InvalidCoinIndex);
+                return Err(QCashError::InvalidCoinIndex);
             }
             if !commitments.insert(output.commitment) {
-                return Err(EcashError::DuplicateCommitment);
+                return Err(QCashError::DuplicateCommitment);
             }
             if index > 0 && output.denomination > self.outputs[index - 1].denomination {
-                return Err(EcashError::NonCanonicalCoins);
+                return Err(QCashError::NonCanonicalCoins);
             }
         }
         self.amount().map(|_| ())
     }
 
-    pub fn amount(&self) -> Result<Amount, EcashError> {
+    pub fn amount(&self) -> Result<Amount, QCashError> {
         self.outputs.iter().try_fold(Amount(0), |total, output| {
             total
                 .0
                 .checked_add(output.denomination.amount().0)
                 .map(Amount)
-                .ok_or(EcashError::AmountOverflow)
+                .ok_or(QCashError::AmountOverflow)
         })
     }
 
-    pub fn validate_amount(&self, expected: Amount) -> Result<(), EcashError> {
+    pub fn validate_amount(&self, expected: Amount) -> Result<(), QCashError> {
         self.validate()?;
         if self.amount()? != expected {
-            return Err(EcashError::DenominationAmountMismatch);
+            return Err(QCashError::DenominationAmountMismatch);
         }
         Ok(())
     }
 }
 
-impl Error for EcashError {}
+impl Error for QCashError {}
 
-impl EcashMetadata {
-    pub fn new(operation: EcashOperation, amount: Amount) -> Result<Self, EcashError> {
+impl QCashMetadata {
+    pub fn new(operation: QCashOperation, amount: Amount) -> Result<Self, QCashError> {
         Ok(Self {
             operation,
             coins: format_cash_coins(amount)?,
         })
     }
 
-    pub fn deposit(amount: Amount) -> Result<Self, EcashError> {
-        Self::new(EcashOperation::Deposit, amount)
+    pub fn deposit(amount: Amount) -> Result<Self, QCashError> {
+        Self::new(QCashOperation::Deposit, amount)
     }
 
-    pub fn withdraw(amount: Amount) -> Result<Self, EcashError> {
-        Self::new(EcashOperation::Withdraw, amount)
+    pub fn withdraw(amount: Amount) -> Result<Self, QCashError> {
+        Self::new(QCashOperation::Withdraw, amount)
     }
 
-    pub fn validate(&self) -> Result<(), EcashError> {
+    pub fn validate(&self) -> Result<(), QCashError> {
         if self.coins.is_empty() {
-            return Err(EcashError::EmptyCoins);
+            return Err(QCashError::EmptyCoins);
         }
 
         let mut previous = None;
         for coin in &self.coins {
             if coin.count == 0 {
-                return Err(EcashError::ZeroCoinCount);
+                return Err(QCashError::ZeroCoinCount);
             }
             if previous.is_some_and(|value| coin.denomination >= value) {
-                return Err(EcashError::NonCanonicalCoins);
+                return Err(QCashError::NonCanonicalCoins);
             }
             previous = Some(coin.denomination);
         }
@@ -622,30 +626,30 @@ impl EcashMetadata {
         self.amount().map(|_| ())
     }
 
-    pub fn amount(&self) -> Result<Amount, EcashError> {
+    pub fn amount(&self) -> Result<Amount, QCashError> {
         self.coins.iter().try_fold(Amount(0), |total, coin| {
             let value = coin
                 .denomination
                 .amount()
                 .0
                 .checked_mul(coin.count)
-                .ok_or(EcashError::AmountOverflow)?;
+                .ok_or(QCashError::AmountOverflow)?;
             total
                 .0
                 .checked_add(value)
                 .map(Amount)
-                .ok_or(EcashError::AmountOverflow)
+                .ok_or(QCashError::AmountOverflow)
         })
     }
 }
 
 /// Formats a whole-XPQ amount using the fewest supported coins.
-pub fn format_cash_coins(amount: Amount) -> Result<Vec<CashCoin>, EcashError> {
+pub fn format_cash_coins(amount: Amount) -> Result<Vec<CashCoin>, QCashError> {
     if amount.0 == 0 {
-        return Err(EcashError::ZeroAmount);
+        return Err(QCashError::ZeroAmount);
     }
     if !amount.0.is_multiple_of(XPQ) {
-        return Err(EcashError::FractionalXpQ);
+        return Err(QCashError::FractionalXpQ);
     }
 
     let mut remaining = amount.0 / XPQ;

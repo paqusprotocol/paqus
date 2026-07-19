@@ -7,9 +7,9 @@ use crate::error::LedgerError;
 use crate::event::ProtocolEvent;
 use crate::ledger::chain::Chain;
 use crate::ledger::{AccountStateProof, SparseStateTree};
-use crate::state::{Account, CreditSource, OffchainCoinState};
+use crate::state::{Account, CreditSource, QCashUtxoSet};
 use crate::transaction::{
-    EcashTransaction, EcashTransactionKind, SignedEcashTransaction, SignedTransaction,
+    QCashTransaction, QCashTransactionKind, SignedQCashTransaction, SignedTransaction,
 };
 use std::collections::BTreeMap;
 use std::ops::{Deref, DerefMut};
@@ -20,15 +20,15 @@ pub struct Ledger {
     pub(crate) accounts: BTreeMap<Address, Account>,
     account_state_tree: Arc<SparseStateTree>,
     pub chain: Chain,
-    pub offchain_coins: OffchainCoinState,
-    pub ecash_account_journals: BTreeMap<BlockHash, EcashAccountJournal>,
-    state_snapshots: BTreeMap<BlockHash, StateSnapshot>,
+    pub qcash_utxos: QCashUtxoSet,
+    pub qcash_account_journals: BTreeMap<BlockHash, QCashAccountJournal>,
+    rollback_states: BTreeMap<BlockHash, AccountRollbackState>,
     /// Derived receipts keyed by their canonical block. Not part of the protocol state root.
     pub events_by_block: BTreeMap<BlockHash, Vec<ProtocolEvent>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct EcashAccountJournal {
+pub struct QCashAccountJournal {
     pub block_hash: BlockHash,
     pub block_height: BlockHeight,
     /// `None` means the account did not exist before this block.
@@ -36,7 +36,7 @@ pub struct EcashAccountJournal {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct StateSnapshot {
+pub(crate) struct AccountRollbackState {
     accounts: BTreeMap<Address, Account>,
     account_state_tree: Arc<SparseStateTree>,
 }
@@ -97,9 +97,9 @@ impl Ledger {
         }
     }
 
-    fn refresh_ecash_accounts(&mut self, transaction: &EcashTransaction) {
+    fn refresh_qcash_accounts(&mut self, transaction: &QCashTransaction) {
         self.refresh_account_state(&transaction.signer);
-        if let EcashTransactionKind::DepositCash { recipient, .. } = &transaction.kind {
+        if let QCashTransactionKind::DepositCash { recipient, .. } = &transaction.kind {
             self.refresh_account_state(recipient);
         }
     }
@@ -170,7 +170,7 @@ impl Ledger {
     /// Account balances plus issued, unredeemed bearer cash.
     pub fn economic_supply(&self) -> Result<Amount, LedgerError> {
         let accounts = self.total_supply()?;
-        let cash = self.offchain_coins.outstanding_balance()?;
+        let cash = self.qcash_utxos.total_value()?;
         accounts
             .0
             .checked_add(cash.0)
@@ -183,25 +183,25 @@ impl Ledger {
         Ok(())
     }
 
-    pub fn apply_signed_ecash_transaction(
+    pub fn apply_signed_qcash_transaction(
         &mut self,
-        signed: &SignedEcashTransaction,
+        signed: &SignedQCashTransaction,
         height: BlockHeight,
     ) -> Result<(), LedgerError> {
         signed
             .validate_signed_for_height(height)
             .map_err(LedgerError::from)?;
         let mut staged = self.clone();
-        staged.apply_ecash_transaction(&signed.transaction, height, None)?;
-        staged.refresh_ecash_accounts(&signed.transaction);
+        staged.apply_qcash_transaction(&signed.transaction, height, None)?;
+        staged.refresh_qcash_accounts(&signed.transaction);
         staged.validate_supply()?;
         *self = staged;
         Ok(())
     }
 
-    pub fn apply_signed_ecash_transaction_in_block(
+    pub fn apply_signed_qcash_transaction_in_block(
         &mut self,
-        signed: &SignedEcashTransaction,
+        signed: &SignedQCashTransaction,
         height: BlockHeight,
         block_hash: BlockHash,
     ) -> Result<(), LedgerError> {
@@ -209,34 +209,34 @@ impl Ledger {
             .validate_signed_for_height(height)
             .map_err(LedgerError::from)?;
         let mut staged = self.clone();
-        staged.capture_ecash_accounts(block_hash, height, &signed.transaction)?;
-        staged.apply_ecash_transaction(&signed.transaction, height, Some(block_hash))?;
-        staged.refresh_ecash_accounts(&signed.transaction);
+        staged.capture_qcash_accounts(block_hash, height, &signed.transaction)?;
+        staged.apply_qcash_transaction(&signed.transaction, height, Some(block_hash))?;
+        staged.refresh_qcash_accounts(&signed.transaction);
         staged.validate_supply()?;
         *self = staged;
         Ok(())
     }
 
-    fn capture_ecash_accounts(
+    fn capture_qcash_accounts(
         &mut self,
         block_hash: BlockHash,
         height: BlockHeight,
-        transaction: &EcashTransaction,
+        transaction: &QCashTransaction,
     ) -> Result<(), LedgerError> {
         let mut addresses = vec![transaction.signer];
-        if let EcashTransactionKind::DepositCash { recipient, .. } = &transaction.kind {
+        if let QCashTransactionKind::DepositCash { recipient, .. } = &transaction.kind {
             addresses.push(*recipient);
         }
         let journal = self
-            .ecash_account_journals
+            .qcash_account_journals
             .entry(block_hash)
-            .or_insert_with(|| EcashAccountJournal {
+            .or_insert_with(|| QCashAccountJournal {
                 block_hash,
                 block_height: height,
                 previous_accounts: BTreeMap::new(),
             });
         if journal.block_height != height {
-            return Err(LedgerError::MissingEcashAccountJournal);
+            return Err(LedgerError::MissingQCashAccountJournal);
         }
         for address in addresses {
             journal
@@ -247,14 +247,14 @@ impl Ledger {
         Ok(())
     }
 
-    /// Atomically restores account and coin state for a disconnected eCash block.
-    pub fn rollback_ecash_block(&mut self, block_hash: BlockHash) -> Result<(), LedgerError> {
+    /// Atomically restores account and coin state for a disconnected QCash block.
+    pub fn rollback_qcash_block(&mut self, block_hash: BlockHash) -> Result<(), LedgerError> {
         let mut staged = self.clone();
         let journal = staged
-            .ecash_account_journals
+            .qcash_account_journals
             .remove(&block_hash)
-            .ok_or(LedgerError::MissingEcashAccountJournal)?;
-        staged.offchain_coins.rollback_block(block_hash)?;
+            .ok_or(LedgerError::MissingQCashAccountJournal)?;
+        staged.qcash_utxos.rollback_block(block_hash)?;
         for (address, previous) in journal.previous_accounts {
             match previous {
                 Some(account) => {
@@ -271,33 +271,33 @@ impl Ledger {
         Ok(())
     }
 
-    pub fn finalize_ecash_at(&mut self, tip_height: BlockHeight) {
-        self.offchain_coins.finalize_at(tip_height);
+    pub fn finalize_qcash_at(&mut self, tip_height: BlockHeight) {
+        self.qcash_utxos.finalize_at(tip_height);
     }
 
-    /// Disconnects the active tip and restores its complete protocol state snapshot.
+    /// Disconnects the active tip and restores its complete rollback state.
     pub fn rollback_block(&mut self, block_hash: BlockHash) -> Result<(), LedgerError> {
         let mut staged = self.clone();
         staged.chain.remove_tip(block_hash)?;
-        let snapshot = staged
-            .state_snapshots
+        let rollback_state = staged
+            .rollback_states
             .remove(&block_hash)
-            .ok_or(LedgerError::MissingEcashAccountJournal)?;
-        if staged.offchain_coins.journal(block_hash).is_some() {
-            staged.offchain_coins.rollback_block(block_hash)?;
+            .ok_or(LedgerError::MissingQCashAccountJournal)?;
+        if staged.qcash_utxos.journal(block_hash).is_some() {
+            staged.qcash_utxos.rollback_block(block_hash)?;
         }
-        staged.ecash_account_journals.remove(&block_hash);
-        staged.accounts = snapshot.accounts;
-        staged.account_state_tree = snapshot.account_state_tree;
+        staged.qcash_account_journals.remove(&block_hash);
+        staged.accounts = rollback_state.accounts;
+        staged.account_state_tree = rollback_state.account_state_tree;
         staged.events_by_block.remove(&block_hash);
         staged.validate_supply()?;
         *self = staged;
         Ok(())
     }
 
-    fn apply_ecash_transaction(
+    fn apply_qcash_transaction(
         &mut self,
-        transaction: &EcashTransaction,
+        transaction: &QCashTransaction,
         height: BlockHeight,
         block_hash: Option<BlockHash>,
     ) -> Result<(), LedgerError> {
@@ -310,7 +310,7 @@ impl Ledger {
         }
 
         match &transaction.kind {
-            EcashTransactionKind::WithdrawCash { amount, metadata } => {
+            QCashTransactionKind::WithdrawCash { amount, metadata } => {
                 let debit = amount
                     .0
                     .checked_add(transaction.fee.0)
@@ -323,7 +323,7 @@ impl Ledger {
                 account.debit_at(debit, height)?;
                 account.increment_nonce();
                 if let Some(block_hash) = block_hash {
-                    self.offchain_coins.apply_withdraw_in_block(
+                    self.qcash_utxos.apply_withdraw_in_block(
                         block_hash,
                         height,
                         transaction.signer,
@@ -331,7 +331,7 @@ impl Ledger {
                         metadata,
                     )?;
                 } else {
-                    self.offchain_coins.apply_withdraw(
+                    self.qcash_utxos.apply_withdraw(
                         transaction.signer,
                         transaction.hash(),
                         metadata,
@@ -339,15 +339,15 @@ impl Ledger {
                     )?;
                 }
             }
-            EcashTransactionKind::DepositCash {
+            QCashTransactionKind::DepositCash {
                 recipient,
                 metadata,
             } => {
                 let amount = if let Some(block_hash) = block_hash {
-                    self.offchain_coins
+                    self.qcash_utxos
                         .apply_deposit_in_block(block_hash, height, metadata, *recipient)?
                 } else {
-                    self.offchain_coins
+                    self.qcash_utxos
                         .apply_deposit_proof(metadata, *recipient, height)?
                 };
                 let credited = Amount(amount.0 - transaction.fee.0);
@@ -358,12 +358,12 @@ impl Ledger {
                 let spendable_height = crate::block::Height(
                     height
                         .0
-                        .saturating_add(crate::ledger::ECASH_DEPOSIT_MATURITY as u64),
+                        .saturating_add(crate::ledger::QCASH_DEPOSIT_MATURITY as u64),
                 );
                 self.accounts
                     .entry(*recipient)
                     .or_insert_with(|| Account::new(*recipient, Amount(0)))
-                    .credit_locked(credited, spendable_height, CreditSource::EcashDeposit)?;
+                    .credit_locked(credited, spendable_height, CreditSource::QCashDeposit)?;
             }
         }
         Ok(())
@@ -394,18 +394,15 @@ impl Ledger {
         }
 
         let block_hash = block.hash();
-        staged.state_snapshots.insert(
+        staged.rollback_states.insert(
             block_hash,
-            StateSnapshot {
+            AccountRollbackState {
                 accounts: self.accounts.clone(),
                 account_state_tree: self.account_state_tree.clone(),
             },
         );
         staged.record_protocol_events(&block);
         staged.chain.insert_block(block)?;
-        if let Some(height) = staged.tip_height() {
-            staged.finalize_ecash_at(height);
-        }
         *self = staged;
 
         Ok(())
@@ -438,15 +435,7 @@ impl Ledger {
 
     /// Root committing accounts and all protocol extension state.
     pub fn protocol_state_root(&self) -> StateRoot {
-        let accounts = self.state_root();
-        let ecash = self.offchain_coins.consensus_root();
-        StateRoot(
-            domain_hash(
-                HashDomain::ProtocolState,
-                &crate::codec::canonical_bytes(&(accounts, ecash)),
-            )
-            .0,
-        )
+        calculate_protocol_state_root(self.state_root(), &self.qcash_utxos)
     }
 
     pub fn create_account_state_proof(&self, address: &Address) -> Option<AccountStateProof> {
@@ -454,4 +443,19 @@ impl Ledger {
             .get(address)
             .map(|account| self.account_state_tree.create_account_proof(account))
     }
+}
+
+/// Commits the account tree and QCash UTXO set into one protocol state root.
+pub fn calculate_protocol_state_root(
+    account_state_root: StateRoot,
+    qcash_utxos: &QCashUtxoSet,
+) -> StateRoot {
+    let qcash_root = qcash_utxos.consensus_root();
+    StateRoot(
+        domain_hash(
+            HashDomain::ProtocolState,
+            &crate::codec::canonical_bytes(&(account_state_root, qcash_root)),
+        )
+        .0,
+    )
 }

@@ -159,6 +159,58 @@ impl ForkChoice {
         self.nodes.is_empty()
     }
 
+    /// Removes branches that diverged before `finalized`, while retaining the
+    /// complete ancestry of the finalized block and every descendant of it.
+    ///
+    /// Keeping the finalized ancestry allows callers to replay the active
+    /// chain from genesis. A finalized block must be on the current best chain;
+    /// accepting any other anchor could discard the selected chain.
+    pub fn prune_finalized(&mut self, finalized: BlockHash) -> Result<usize, ForkChoiceError> {
+        if !self.nodes.contains_key(&finalized) {
+            return Err(ForkChoiceError::UnknownFinalizedBlock);
+        }
+
+        let best_tip = self
+            .best_tip
+            .ok_or(ForkChoiceError::UnknownFinalizedBlock)?;
+        if !self.ancestor_hashes(best_tip).contains(&finalized) {
+            return Err(ForkChoiceError::FinalizedBlockNotOnBestChain);
+        }
+
+        let finalized_ancestors: std::collections::BTreeSet<_> =
+            self.ancestor_hashes(finalized).into_iter().collect();
+        let old_len = self.nodes.len();
+        let retained: std::collections::BTreeSet<_> = self
+            .nodes
+            .keys()
+            .copied()
+            .filter(|hash| {
+                finalized_ancestors.contains(hash)
+                    || Self::descends_from_in(&self.nodes, *hash, finalized)
+            })
+            .collect();
+        self.nodes.retain(|hash, _| retained.contains(hash));
+        Ok(old_len.saturating_sub(self.nodes.len()))
+    }
+
+    fn descends_from_in(
+        nodes: &BTreeMap<BlockHash, BlockNode>,
+        hash: BlockHash,
+        ancestor: BlockHash,
+    ) -> bool {
+        let mut current = hash;
+        while let Some(node) = nodes.get(&current) {
+            if current == ancestor {
+                return true;
+            }
+            if node.height.0 == 0 {
+                return false;
+            }
+            current = node.parent;
+        }
+        false
+    }
+
     fn update_best_tip(&mut self, candidate_hash: BlockHash) {
         let Some(candidate) = self.nodes.get(&candidate_hash) else {
             return;
@@ -185,6 +237,8 @@ pub enum ForkChoiceError {
     InvalidDifficulty,
     InvalidHeight,
     MissingParent,
+    UnknownFinalizedBlock,
+    FinalizedBlockNotOnBestChain,
 }
 
 pub fn block_work(difficulty: u32) -> Work {

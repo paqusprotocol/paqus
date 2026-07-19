@@ -11,7 +11,7 @@ const SECOND: u32 = 1;
 const MINUTE: u32 = 60 * SECOND;
 const HOUR: u32 = 60 * MINUTE;
 const DAY: u32 = 24 * HOUR;
-pub const BLOCK_TIME: u32 = MINUTE;
+pub const BLOCK_TIME: u32 = 5 * MINUTE;
 pub const BLOCKS_PER_DAY: u64 = DAY as u64 / BLOCK_TIME as u64;
 pub const BLOCKS_PER_YEAR: u64 = 365 * BLOCKS_PER_DAY;
 pub const MIN_DIFFICULTY: u32 = 1;
@@ -62,8 +62,7 @@ impl Consensus {
             return Err(ConsensusError::InvalidHeight);
         }
 
-        // Genesis is the frozen chain anchor, not a competitively mined block.
-        Ok(())
+        self.validate_proof_of_work(block)
     }
 
     pub fn validate_next_block(

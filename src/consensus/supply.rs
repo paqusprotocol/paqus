@@ -10,8 +10,8 @@ pub const DECIMALS: u8 = 5;
 
 const_assert!(XPQ == 100_000);
 
-pub const BLOCK_REWARD: u64 = 1_000_000; // 10 XPQ
-pub const TAIL_EMISSION: u64 = 20_000; // 0.2 XPQ
+pub const BLOCK_REWARD: u64 = 25 * XPQ; // 25 XPQ
+pub const TAIL_EMISSION: u64 = 74_700; // 0.747 XPQ
 pub const TAIL_EMISSION_START_YEARS: u64 = 5;
 
 #[derive(

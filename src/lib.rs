@@ -2,12 +2,11 @@ pub mod block;
 pub mod codec;
 pub mod consensus;
 pub mod crypto;
-pub mod ecash;
 pub mod error;
 pub mod event;
 pub mod genesis;
 pub mod ledger;
-pub mod snapshot;
+pub mod qcash;
 pub mod state;
 pub mod transaction;
 

@@ -16,9 +16,9 @@ pub enum TransactionError {
     TransactionTooLarge,
     InvalidSignature,
     SenderAddressMismatch,
-    InvalidEcashMetadata,
-    EcashFeeExceedsAmount,
-    InvalidEcashRecipient,
+    InvalidQCashMetadata,
+    QCashFeeExceedsAmount,
+    InvalidQCashRecipient,
     InvalidValidityWindow,
     NotYetValid,
     ValidityExpired,
@@ -58,14 +58,14 @@ impl fmt::Display for TransactionError {
             TransactionError::SenderAddressMismatch => {
                 f.write_str("transaction sender does not match public key address")
             }
-            TransactionError::InvalidEcashMetadata => {
-                f.write_str("transaction contains invalid eCash metadata")
+            TransactionError::InvalidQCashMetadata => {
+                f.write_str("transaction contains invalid QCash metadata")
             }
-            TransactionError::EcashFeeExceedsAmount => {
-                f.write_str("eCash deposit fee must be less than deposited amount")
+            TransactionError::QCashFeeExceedsAmount => {
+                f.write_str("QCash deposit fee must be less than deposited amount")
             }
-            TransactionError::InvalidEcashRecipient => {
-                f.write_str("eCash deposit recipient is invalid")
+            TransactionError::InvalidQCashRecipient => {
+                f.write_str("QCash deposit recipient is invalid")
             }
             TransactionError::InvalidValidityWindow => {
                 f.write_str("transaction validity window is invalid")

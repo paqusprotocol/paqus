@@ -46,7 +46,7 @@ pub enum CreditSource {
     Transaction,
     Fee,
     MiningReward,
-    EcashDeposit,
+    QCashDeposit,
 }
 
 impl Account {
@@ -63,7 +63,7 @@ impl Account {
         }
     }
 
-    /// Builds account state for trusted imports such as snapshots or tests.
+    /// Builds account state for trusted imports or tests.
     pub fn trusted_with_nonce(address: Address, balance: Balance, nonce: AccountNonce) -> Self {
         Self {
             address,

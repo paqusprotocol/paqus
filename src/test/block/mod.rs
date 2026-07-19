@@ -7,7 +7,7 @@ use crate::crypto::Address;
 use crate::crypto::Hash;
 use crate::crypto::{address_from_public_key, generate_keypair, sign};
 use crate::transaction::{
-    EcashTransaction, SignedEcashTransaction, SignedTransaction, Transaction,
+    QCashTransaction, SignedQCashTransaction, SignedTransaction, Transaction,
 };
 
 const TEST_FEE: u64 = 2;
@@ -318,9 +318,9 @@ fn rejects_fee_overflow() {
 }
 
 #[test]
-fn block_commits_transfer_ecash_and_witnesses() {
+fn block_commits_transfer_qcash_and_witnesses() {
     use crate::consensus::supply::XPQ;
-    use crate::ecash::{CashDenomination, WithdrawCashMetadata, cash_coin_commitment};
+    use crate::qcash::{CashDenomination, WithdrawCashMetadata, cash_coin_commitment};
 
     let keypair = generate_keypair();
     let signer = address_from_public_key(&keypair.public_key);
@@ -331,18 +331,18 @@ fn block_commits_transfer_ecash_and_witnesses() {
     )
     .unwrap();
     let transaction =
-        EcashTransaction::withdraw(signer, Amount(XPQ), Amount(3), Nonce(0), metadata);
+        QCashTransaction::withdraw(signer, Amount(XPQ), Amount(3), Nonce(0), metadata);
     let signature = sign(&keypair.secret_key, &transaction.signing_bytes());
-    let ecash = SignedEcashTransaction::new(transaction, keypair.public_key, signature);
+    let qcash = SignedQCashTransaction::new(transaction, keypair.public_key, signature);
     let mut block = Block::with_all_transactions(
-        Height(crate::snapshot::SNAPSHOT_INTERVAL),
+        Height(1),
         Hash([1; crate::crypto::HASH_SIZE]),
         miner(),
         1,
         1_700_000_000,
         Nonce(1),
         vec![signed_transaction(0)],
-        vec![ecash],
+        vec![qcash],
     )
     .unwrap();
 

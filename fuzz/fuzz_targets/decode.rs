@@ -5,6 +5,6 @@ use libfuzzer_sys::fuzz_target;
 fuzz_target!(|data: &[u8]| {
     let _ = paqus::codec::decode_transaction(data);
     let _ = paqus::codec::decode_signed_transaction(data);
-    let _ = paqus::codec::decode_ecash_transaction(data);
-    let _ = paqus::codec::decode_signed_ecash_transaction(data);
+    let _ = paqus::codec::decode_qcash_transaction(data);
+    let _ = paqus::codec::decode_signed_qcash_transaction(data);
 });

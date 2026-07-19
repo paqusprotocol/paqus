@@ -11,15 +11,15 @@ pub mod transition;
 
 pub use crate::error::LedgerError;
 
-pub const CONFIRMATION_DEPTH: u32 = 10;
-pub const BLOCK_REWARD_MATURITY: u32 = 120;
-pub const FINALITY_DEPTH: u32 = 100;
-pub const ECASH_WITHDRAW_MATURITY: u32 = FINALITY_DEPTH;
-pub const ECASH_DEPOSIT_MATURITY: u32 = FINALITY_DEPTH;
+pub const CONFIRMATION_DEPTH: u32 = 5;
+pub const BLOCK_REWARD_MATURITY: u32 = 100;
+pub const FINALITY_DEPTH: u32 = 50;
+pub const QCASH_WITHDRAW_MATURITY: u32 = FINALITY_DEPTH;
+pub const QCASH_DEPOSIT_MATURITY: u32 = FINALITY_DEPTH;
 
 pub use chain::Chain;
 pub use invariants::validate_ledger_invariants;
-pub use ledger::{EcashAccountJournal, Ledger};
+pub use ledger::{Ledger, QCashAccountJournal, calculate_protocol_state_root};
 pub use reorg::{ReorgPlan, common_ancestor, plan_reorg};
 pub use state_proof::{
     AccountStateProof, ProofSide, SparseStateTree, StateProofNode, calculate_state_root,

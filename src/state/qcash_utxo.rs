@@ -1,12 +1,12 @@
-//! Local state for tracking eCash coins outside account consensus state.
+//! Consensus UTXO set for QCash bearer outputs.
 
 use crate::block::BlockHeight;
 use crate::consensus::supply::Amount;
 use crate::crypto::{
     Address, BlockHash, HASH_SIZE, Hash, HashDomain, TransactionHash, domain_hash,
 };
-use crate::ecash::{
-    CashDenomination, DepositCashMetadata, EcashMetadata, EcashOperation, EcashOutput,
+use crate::qcash::{
+    CashDenomination, DepositCashMetadata, QCashMetadata, QCashOperation, QCashOutput,
     WithdrawCashMetadata, cash_coin_id_bytes, cash_spend_public_key_commitment,
 };
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -31,8 +31,28 @@ use std::fmt;
 )]
 pub struct CashCoinId(pub [u8; HASH_SIZE]);
 
+/// Canonical origin of one QCash output.
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
+    BorshSerialize,
+    BorshDeserialize,
+)]
+pub struct QCashOutPoint {
+    pub transaction_hash: TransactionHash,
+    pub output_index: u32,
+}
+
 impl CashCoinId {
-    pub fn derive(withdraw_tx_hash: TransactionHash, output: &EcashOutput) -> Self {
+    pub fn derive(withdraw_tx_hash: TransactionHash, output: &QCashOutput) -> Self {
         Self(cash_coin_id_bytes(withdraw_tx_hash, output))
     }
 
@@ -67,59 +87,48 @@ impl CashCoinId {
     BorshSerialize,
     BorshDeserialize,
 )]
-pub enum OffchainCoinStatus {
-    PendingIssue,
-    Issued,
-    PendingRedeem,
-    Redeemed,
-    Orphaned,
+pub enum QCashUtxoStatus {
+    Pending,
+    Spendable,
 }
 
 /// One individually tracked cash coin.
 #[derive(
     Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, BorshSerialize, BorshDeserialize,
 )]
-pub struct OffchainCashCoin {
+pub struct QCashUtxo {
     pub id: CashCoinId,
+    pub outpoint: QCashOutPoint,
     pub withdrawer: Address,
-    pub withdraw_tx_hash: TransactionHash,
-    pub coin_index: u32,
     pub denomination: CashDenomination,
     pub commitment: [u8; 32],
-    pub status: OffchainCoinStatus,
+    pub status: QCashUtxoStatus,
     pub issued_height: BlockHeight,
-    pub redeem_requested_height: Option<BlockHeight>,
-    pub issued_event: u64,
-    pub redeemed_event: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
-pub struct EcashBlockJournal {
+pub struct QCashBlockJournal {
     pub block_hash: BlockHash,
     pub block_height: BlockHeight,
-    /// Event sequence before the first eCash transition in this block.
-    pub previous_next_event: u64,
     pub issued_coin_ids: Vec<CashCoinId>,
-    pub previous_coins: Vec<OffchainCashCoin>,
+    pub spent_utxos: Vec<QCashUtxo>,
 }
 
 #[derive(
     Debug, Clone, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize, Default,
 )]
-pub struct OffchainCoinState {
-    next_event: u64,
-    coins: BTreeMap<CashCoinId, OffchainCashCoin>,
-    journals: BTreeMap<BlockHash, EcashBlockJournal>,
+pub struct QCashUtxoSet {
+    coins: BTreeMap<CashCoinId, QCashUtxo>,
+    journals: BTreeMap<BlockHash, QCashBlockJournal>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum OffchainCoinError {
+pub enum QCashUtxoError {
     InvalidMetadata,
     WrongOperation,
     StateOverflow,
     UnknownCoin,
     DuplicateCoin,
-    CoinAlreadyRedeemed,
     DenominationMismatch,
     CoinIdCollision,
     InvalidCoinProof,
@@ -127,44 +136,43 @@ pub enum OffchainCoinError {
     MissingBlockJournal,
 }
 
-impl fmt::Display for OffchainCoinError {
+impl fmt::Display for QCashUtxoError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::InvalidMetadata => f.write_str("invalid eCash metadata"),
+            Self::InvalidMetadata => f.write_str("invalid QCash metadata"),
             Self::WrongOperation => {
-                f.write_str("eCash metadata operation does not match state operation")
+                f.write_str("QCash metadata operation does not match state operation")
             }
-            Self::StateOverflow => f.write_str("offchain coin state sequence overflow"),
-            Self::UnknownCoin => f.write_str("cash coin is not present in offchain state"),
+            Self::StateOverflow => f.write_str("QCash UTXO value overflow"),
+            Self::UnknownCoin => f.write_str("QCash output is unknown or already spent"),
             Self::DuplicateCoin => f.write_str("cash coin is repeated in the operation"),
-            Self::CoinAlreadyRedeemed => f.write_str("cash coin has already been redeemed"),
             Self::DenominationMismatch => {
                 f.write_str("cash coin denominations do not match metadata")
             }
             Self::CoinIdCollision => f.write_str("derived cash coin ID already exists"),
             Self::InvalidCoinProof => f.write_str("cash coin proof does not match issued output"),
-            Self::CoinNotMature => f.write_str("cash coin has not reached eCash finality maturity"),
-            Self::MissingBlockJournal => f.write_str("eCash block journal was not found"),
+            Self::CoinNotMature => f.write_str("cash coin has not reached QCash finality maturity"),
+            Self::MissingBlockJournal => f.write_str("QCash block journal was not found"),
         }
     }
 }
 
-impl Error for OffchainCoinError {}
+impl Error for QCashUtxoError {}
 
-impl OffchainCoinState {
+impl QCashUtxoSet {
     pub fn new() -> Self {
         Self::default()
     }
 
-    pub fn coin(&self, id: CashCoinId) -> Option<&OffchainCashCoin> {
+    pub fn coin(&self, id: CashCoinId) -> Option<&QCashUtxo> {
         self.coins.get(&id)
     }
 
-    pub fn coins(&self) -> impl Iterator<Item = &OffchainCashCoin> {
+    pub fn coins(&self) -> impl Iterator<Item = &QCashUtxo> {
         self.coins.values()
     }
 
-    pub fn journal(&self, block_hash: BlockHash) -> Option<&EcashBlockJournal> {
+    pub fn journal(&self, block_hash: BlockHash) -> Option<&QCashBlockJournal> {
         self.journals.get(&block_hash)
     }
 
@@ -172,72 +180,52 @@ impl OffchainCoinState {
     pub fn consensus_root(&self) -> Hash {
         let records: Vec<_> = self.coins.values().collect();
         domain_hash(
-            HashDomain::EcashState,
+            HashDomain::QCashState,
             &crate::codec::canonical_bytes(&records),
         )
     }
 
-    pub fn issued_coins(&self) -> impl Iterator<Item = &OffchainCashCoin> {
+    pub fn spendable_utxos(&self) -> impl Iterator<Item = &QCashUtxo> {
         self.coins
             .values()
-            .filter(|coin| coin.status == OffchainCoinStatus::Issued)
+            .filter(|coin| coin.status == QCashUtxoStatus::Spendable)
     }
 
-    pub fn outstanding_coins(&self) -> impl Iterator<Item = &OffchainCashCoin> {
-        self.coins.values().filter(|coin| {
-            matches!(
-                coin.status,
-                OffchainCoinStatus::PendingIssue
-                    | OffchainCoinStatus::Issued
-                    | OffchainCoinStatus::PendingRedeem
-            )
-        })
+    pub fn utxos(&self) -> impl Iterator<Item = &QCashUtxo> {
+        self.coins.values()
     }
 
-    pub fn issued_balance(&self) -> Result<Amount, OffchainCoinError> {
-        self.issued_coins().try_fold(Amount(0), |total, coin| {
+    pub fn spendable_balance(&self) -> Result<Amount, QCashUtxoError> {
+        self.spendable_utxos().try_fold(Amount(0), |total, coin| {
             total
                 .0
                 .checked_add(coin.denomination.amount().0)
                 .map(Amount)
-                .ok_or(OffchainCoinError::StateOverflow)
+                .ok_or(QCashUtxoError::StateOverflow)
         })
     }
 
-    pub fn outstanding_balance(&self) -> Result<Amount, OffchainCoinError> {
-        self.outstanding_coins().try_fold(Amount(0), |total, coin| {
+    pub fn total_value(&self) -> Result<Amount, QCashUtxoError> {
+        self.utxos().try_fold(Amount(0), |total, coin| {
             total
                 .0
                 .checked_add(coin.denomination.amount().0)
                 .map(Amount)
-                .ok_or(OffchainCoinError::StateOverflow)
+                .ok_or(QCashUtxoError::StateOverflow)
         })
     }
 
-    /// Finalizes pending issue and redemption states at the active chain tip.
+    /// Makes finalized withdrawal outputs spendable at the active chain tip.
     pub fn finalize_at(&mut self, tip_height: BlockHeight) {
         for coin in self.coins.values_mut() {
-            match coin.status {
-                OffchainCoinStatus::PendingIssue
-                    if tip_height.0
-                        >= coin
-                            .issued_height
-                            .0
-                            .saturating_add(crate::ledger::ECASH_WITHDRAW_MATURITY as u64) =>
-                {
-                    coin.status = OffchainCoinStatus::Issued;
-                }
-                OffchainCoinStatus::PendingRedeem
-                    if coin.redeem_requested_height.is_some_and(|height| {
-                        tip_height.0
-                            >= height
-                                .0
-                                .saturating_add(crate::ledger::ECASH_DEPOSIT_MATURITY as u64)
-                    }) =>
-                {
-                    coin.status = OffchainCoinStatus::Redeemed;
-                }
-                _ => {}
+            if coin.status == QCashUtxoStatus::Pending
+                && tip_height.0
+                    >= coin
+                        .issued_height
+                        .0
+                        .saturating_add(crate::ledger::QCASH_WITHDRAW_MATURITY as u64)
+            {
+                coin.status = QCashUtxoStatus::Spendable;
             }
         }
     }
@@ -249,23 +237,18 @@ impl OffchainCoinState {
         withdraw_tx_hash: TransactionHash,
         metadata: &WithdrawCashMetadata,
         height: BlockHeight,
-    ) -> Result<Vec<CashCoinId>, OffchainCoinError> {
+    ) -> Result<Vec<CashCoinId>, QCashUtxoError> {
         metadata
             .validate()
-            .map_err(|_| OffchainCoinError::InvalidMetadata)?;
-        let event = self.next_event;
-        let next_event = event
-            .checked_add(1)
-            .ok_or(OffchainCoinError::StateOverflow)?;
-
-        let mut pending: Vec<(CashCoinId, &EcashOutput)> =
+            .map_err(|_| QCashUtxoError::InvalidMetadata)?;
+        let mut pending: Vec<(CashCoinId, &QCashOutput)> =
             Vec::with_capacity(metadata.outputs.len());
         for output in &metadata.outputs {
             let id = CashCoinId::derive(withdraw_tx_hash, output);
             if self.coins.contains_key(&id)
                 || pending.iter().any(|(pending_id, _)| *pending_id == id)
             {
-                return Err(OffchainCoinError::CoinIdCollision);
+                return Err(QCashUtxoError::CoinIdCollision);
             }
             pending.push((id, output));
         }
@@ -274,57 +257,46 @@ impl OffchainCoinState {
         for (id, output) in pending {
             self.coins.insert(
                 id,
-                OffchainCashCoin {
+                QCashUtxo {
                     id,
+                    outpoint: QCashOutPoint {
+                        transaction_hash: withdraw_tx_hash,
+                        output_index: output.coin_index,
+                    },
                     withdrawer,
-                    withdraw_tx_hash,
-                    coin_index: output.coin_index,
                     denomination: output.denomination,
                     commitment: output.commitment,
-                    status: OffchainCoinStatus::PendingIssue,
+                    status: QCashUtxoStatus::Pending,
                     issued_height: height,
-                    redeem_requested_height: None,
-                    issued_event: event,
-                    redeemed_event: None,
                 },
             );
             ids.push(id);
         }
-        self.next_event = next_event;
         Ok(ids)
     }
 
     /// Redeems issued coin IDs after matching them against deposit metadata.
     pub fn apply_deposit(
         &mut self,
-        metadata: &EcashMetadata,
+        metadata: &QCashMetadata,
         coin_ids: &[CashCoinId],
-    ) -> Result<(), OffchainCoinError> {
+    ) -> Result<(), QCashUtxoError> {
         metadata
             .validate()
-            .map_err(|_| OffchainCoinError::InvalidMetadata)?;
-        if metadata.operation != EcashOperation::Deposit {
-            return Err(OffchainCoinError::WrongOperation);
+            .map_err(|_| QCashUtxoError::InvalidMetadata)?;
+        if metadata.operation != QCashOperation::Deposit {
+            return Err(QCashUtxoError::WrongOperation);
         }
         let unique: BTreeSet<_> = coin_ids.iter().copied().collect();
         if unique.len() != coin_ids.len() {
-            return Err(OffchainCoinError::DuplicateCoin);
+            return Err(QCashUtxoError::DuplicateCoin);
         }
 
         let mut actual = BTreeMap::<CashDenomination, u64>::new();
         for id in coin_ids {
-            let coin = self.coins.get(id).ok_or(OffchainCoinError::UnknownCoin)?;
-            if coin.status != OffchainCoinStatus::Issued {
-                return Err(
-                    if matches!(
-                        coin.status,
-                        OffchainCoinStatus::PendingRedeem | OffchainCoinStatus::Redeemed
-                    ) {
-                        OffchainCoinError::CoinAlreadyRedeemed
-                    } else {
-                        OffchainCoinError::CoinNotMature
-                    },
-                );
+            let coin = self.coins.get(id).ok_or(QCashUtxoError::UnknownCoin)?;
+            if coin.status != QCashUtxoStatus::Spendable {
+                return Err(QCashUtxoError::CoinNotMature);
             }
             *actual.entry(coin.denomination).or_default() += 1;
         }
@@ -334,17 +306,11 @@ impl OffchainCoinState {
             .map(|run| (run.denomination, run.count))
             .collect();
         if actual != expected {
-            return Err(OffchainCoinError::DenominationMismatch);
+            return Err(QCashUtxoError::DenominationMismatch);
         }
 
-        let event = self.next_event;
-        self.next_event = event
-            .checked_add(1)
-            .ok_or(OffchainCoinError::StateOverflow)?;
         for id in coin_ids {
-            let coin = self.coins.get_mut(id).expect("coins were validated above");
-            coin.status = OffchainCoinStatus::Redeemed;
-            coin.redeemed_event = Some(event);
+            self.coins.remove(id).expect("UTXOs were validated above");
         }
         Ok(())
     }
@@ -355,47 +321,32 @@ impl OffchainCoinState {
         metadata: &DepositCashMetadata,
         recipient: Address,
         height: BlockHeight,
-    ) -> Result<Amount, OffchainCoinError> {
+    ) -> Result<Amount, QCashUtxoError> {
         metadata
             .validate_authorizations(recipient)
-            .map_err(|_| OffchainCoinError::InvalidMetadata)?;
+            .map_err(|_| QCashUtxoError::InvalidMetadata)?;
         let mut ids = Vec::with_capacity(metadata.inputs.len());
         for input in &metadata.inputs {
             let id = CashCoinId(input.coin_id);
-            let coin = self.coins.get(&id).ok_or(OffchainCoinError::UnknownCoin)?;
-            if coin.status != OffchainCoinStatus::Issued {
-                return Err(
-                    if matches!(
-                        coin.status,
-                        OffchainCoinStatus::PendingRedeem | OffchainCoinStatus::Redeemed
-                    ) {
-                        OffchainCoinError::CoinAlreadyRedeemed
-                    } else {
-                        OffchainCoinError::CoinNotMature
-                    },
-                );
+            let coin = self.coins.get(&id).ok_or(QCashUtxoError::UnknownCoin)?;
+            if coin.status != QCashUtxoStatus::Spendable {
+                return Err(QCashUtxoError::CoinNotMature);
             }
             if coin.denomination != input.denomination
                 || coin.commitment != cash_spend_public_key_commitment(&input.spend_public_key)
             {
-                return Err(OffchainCoinError::InvalidCoinProof);
+                return Err(QCashUtxoError::InvalidCoinProof);
             }
             ids.push(id);
         }
 
         let amount = metadata
             .amount()
-            .map_err(|_| OffchainCoinError::InvalidMetadata)?;
-        let event = self.next_event;
-        self.next_event = event
-            .checked_add(1)
-            .ok_or(OffchainCoinError::StateOverflow)?;
+            .map_err(|_| QCashUtxoError::InvalidMetadata)?;
         for id in ids {
-            let coin = self.coins.get_mut(&id).expect("coins were validated above");
-            coin.status = OffchainCoinStatus::PendingRedeem;
-            coin.redeem_requested_height = Some(height);
-            coin.redeemed_event = Some(event);
+            self.coins.remove(&id).expect("UTXOs were validated above");
         }
+        let _ = height;
         Ok(amount)
     }
 
@@ -406,22 +357,20 @@ impl OffchainCoinState {
         withdrawer: Address,
         withdraw_tx_hash: TransactionHash,
         metadata: &WithdrawCashMetadata,
-    ) -> Result<Vec<CashCoinId>, OffchainCoinError> {
+    ) -> Result<Vec<CashCoinId>, QCashUtxoError> {
         let mut staged = self.clone();
-        let previous_next_event = staged.next_event;
         let ids = staged.apply_withdraw(withdrawer, withdraw_tx_hash, metadata, height)?;
         let journal = staged
             .journals
             .entry(block_hash)
-            .or_insert_with(|| EcashBlockJournal {
+            .or_insert_with(|| QCashBlockJournal {
                 block_hash,
                 block_height: height,
-                previous_next_event,
                 issued_coin_ids: Vec::new(),
-                previous_coins: Vec::new(),
+                spent_utxos: Vec::new(),
             });
         if journal.block_height != height {
-            return Err(OffchainCoinError::InvalidMetadata);
+            return Err(QCashUtxoError::InvalidMetadata);
         }
         journal.issued_coin_ids.extend(ids.iter().copied());
         *self = staged;
@@ -434,9 +383,8 @@ impl OffchainCoinState {
         height: BlockHeight,
         metadata: &DepositCashMetadata,
         recipient: Address,
-    ) -> Result<Amount, OffchainCoinError> {
+    ) -> Result<Amount, QCashUtxoError> {
         let mut staged = self.clone();
-        let previous_next_event = staged.next_event;
         let mut previous = Vec::with_capacity(metadata.inputs.len());
         for input in &metadata.inputs {
             let id = CashCoinId(input.coin_id);
@@ -445,41 +393,39 @@ impl OffchainCoinState {
                     .coins
                     .get(&id)
                     .cloned()
-                    .ok_or(OffchainCoinError::UnknownCoin)?,
+                    .ok_or(QCashUtxoError::UnknownCoin)?,
             );
         }
         let amount = staged.apply_deposit_proof(metadata, recipient, height)?;
         let journal = staged
             .journals
             .entry(block_hash)
-            .or_insert_with(|| EcashBlockJournal {
+            .or_insert_with(|| QCashBlockJournal {
                 block_hash,
                 block_height: height,
-                previous_next_event,
                 issued_coin_ids: Vec::new(),
-                previous_coins: Vec::new(),
+                spent_utxos: Vec::new(),
             });
         if journal.block_height != height {
-            return Err(OffchainCoinError::InvalidMetadata);
+            return Err(QCashUtxoError::InvalidMetadata);
         }
-        journal.previous_coins.extend(previous);
+        journal.spent_utxos.extend(previous);
         *self = staged;
         Ok(amount)
     }
 
-    /// Reverses all eCash changes made by a disconnected block.
-    pub fn rollback_block(&mut self, block_hash: BlockHash) -> Result<(), OffchainCoinError> {
+    /// Reverses all QCash changes made by a disconnected block.
+    pub fn rollback_block(&mut self, block_hash: BlockHash) -> Result<(), QCashUtxoError> {
         let journal = self
             .journals
             .remove(&block_hash)
-            .ok_or(OffchainCoinError::MissingBlockJournal)?;
-        for previous in journal.previous_coins.into_iter().rev() {
+            .ok_or(QCashUtxoError::MissingBlockJournal)?;
+        for previous in journal.spent_utxos.into_iter().rev() {
             self.coins.insert(previous.id, previous);
         }
         for id in journal.issued_coin_ids {
             self.coins.remove(&id);
         }
-        self.next_event = journal.previous_next_event;
         Ok(())
     }
 }

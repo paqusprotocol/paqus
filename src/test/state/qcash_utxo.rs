@@ -1,14 +1,15 @@
 use crate::block::Height;
 use crate::consensus::supply::{Amount, XPQ};
 use crate::crypto::{Address, BlockHash, TransactionHash};
-use crate::ecash::{
-    CashCoinFile, CashDenomination, DepositCashMetadata, EcashError, EcashMetadata,
+use crate::ledger::QCASH_WITHDRAW_MATURITY;
+use crate::qcash::{
+    CashCoinFile, CashDenomination, DepositCashMetadata, QCashError, QCashMetadata,
     WithdrawCashMetadata, cash_coin_commitment, decode_cash_coin_file, encode_cash_coin_file,
 };
-use crate::state::{CashCoinId, OffchainCoinError, OffchainCoinState, OffchainCoinStatus};
+use crate::state::{CashCoinId, QCashUtxoError, QCashUtxoSet, QCashUtxoStatus};
 
 fn withdraw_metadata(amount: u64, seed: u8) -> WithdrawCashMetadata {
-    let runs = crate::ecash::format_cash_coins(Amount(amount * XPQ)).unwrap();
+    let runs = crate::qcash::format_cash_coins(Amount(amount * XPQ)).unwrap();
     let count = runs.iter().map(|run| run.count as usize).sum();
     let commitments: Vec<[u8; 32]> = (0..count)
         .map(|index| [seed.wrapping_add(index as u8); 32])
@@ -18,7 +19,7 @@ fn withdraw_metadata(amount: u64, seed: u8) -> WithdrawCashMetadata {
 
 #[test]
 fn withdraw_issues_individually_tracked_coins() {
-    let mut state = OffchainCoinState::new();
+    let mut state = QCashUtxoSet::new();
     let metadata = withdraw_metadata(252, 1);
     let ids = state
         .apply_withdraw(
@@ -31,20 +32,21 @@ fn withdraw_issues_individually_tracked_coins() {
 
     assert_eq!(ids.len(), 4);
     assert_eq!(state.coins().count(), 4);
-    assert_eq!(state.issued_balance(), Ok(Amount(0)));
-    assert_eq!(state.outstanding_balance(), Ok(Amount(252 * XPQ)));
+    assert_eq!(state.spendable_balance(), Ok(Amount(0)));
+    assert_eq!(state.total_value(), Ok(Amount(252 * XPQ)));
     state.finalize_at(Height(100));
-    assert_eq!(state.issued_balance(), Ok(Amount(252 * XPQ)));
+    assert_eq!(state.spendable_balance(), Ok(Amount(252 * XPQ)));
     assert!(
         state
             .coins()
-            .all(|coin| coin.status == OffchainCoinStatus::Issued)
+            .all(|coin| coin.status == QCashUtxoStatus::Spendable)
     );
 }
 
 #[test]
-fn deposit_marks_coins_redeemed_and_prevents_double_deposit() {
-    let mut state = OffchainCoinState::new();
+fn deposit_consumes_utxos_and_prevents_double_spend() {
+    let mut state = QCashUtxoSet::new();
+    let empty_root = state.consensus_root();
     let ids = state
         .apply_withdraw(
             Address([2; 20]),
@@ -54,24 +56,22 @@ fn deposit_marks_coins_redeemed_and_prevents_double_deposit() {
         )
         .unwrap();
     state.finalize_at(Height(100));
-    let deposit = EcashMetadata::deposit(Amount(52 * XPQ)).unwrap();
+    assert_ne!(state.consensus_root(), empty_root);
+    let deposit = QCashMetadata::deposit(Amount(52 * XPQ)).unwrap();
 
     assert_eq!(state.apply_deposit(&deposit, &ids), Ok(()));
-    assert_eq!(state.issued_balance(), Ok(Amount(0)));
-    assert!(
-        state
-            .coins()
-            .all(|coin| coin.status == OffchainCoinStatus::Redeemed)
-    );
+    assert_eq!(state.spendable_balance(), Ok(Amount(0)));
+    assert_eq!(state.coins().count(), 0);
+    assert_eq!(state.consensus_root(), empty_root);
     assert_eq!(
         state.apply_deposit(&deposit, &ids),
-        Err(OffchainCoinError::CoinAlreadyRedeemed)
+        Err(QCashUtxoError::UnknownCoin)
     );
 }
 
 #[test]
 fn deposit_is_atomic_when_a_coin_is_unknown() {
-    let mut state = OffchainCoinState::new();
+    let mut state = QCashUtxoSet::new();
     let ids = state
         .apply_withdraw(
             Address([3; 20]),
@@ -86,20 +86,20 @@ fn deposit_is_atomic_when_a_coin_is_unknown() {
 
     assert_eq!(
         state.apply_deposit(
-            &EcashMetadata::deposit(Amount(2 * XPQ)).unwrap(),
+            &QCashMetadata::deposit(Amount(2 * XPQ)).unwrap(),
             &invalid_ids,
         ),
-        Err(OffchainCoinError::UnknownCoin)
+        Err(QCashUtxoError::UnknownCoin)
     );
     assert_eq!(
         state.coin(ids[0]).unwrap().status,
-        OffchainCoinStatus::Issued
+        QCashUtxoStatus::Spendable
     );
 }
 
 #[test]
 fn deposit_requires_matching_denominations() {
-    let mut state = OffchainCoinState::new();
+    let mut state = QCashUtxoSet::new();
     let ids = state
         .apply_withdraw(
             Address([4; 20]),
@@ -111,8 +111,8 @@ fn deposit_requires_matching_denominations() {
     state.finalize_at(Height(100));
 
     assert_eq!(
-        state.apply_deposit(&EcashMetadata::deposit(Amount(5 * XPQ)).unwrap(), &ids),
-        Err(OffchainCoinError::DenominationMismatch)
+        state.apply_deposit(&QCashMetadata::deposit(Amount(5 * XPQ)).unwrap(), &ids),
+        Err(QCashUtxoError::DenominationMismatch)
     );
 }
 
@@ -127,22 +127,22 @@ fn coin_id_is_deterministic_and_formats_file_name() {
     assert_ne!(id, CashCoinId::derive(TransactionHash([6; 32]), output));
     assert_eq!(id.short_id().len(), 9);
     assert_eq!(
-        id.file_name(crate::ecash::CashDenomination::Fifty).len(),
+        id.file_name(crate::qcash::CashDenomination::Fifty).len(),
         16
     );
     assert!(
-        id.file_name(crate::ecash::CashDenomination::Fifty)
+        id.file_name(crate::qcash::CashDenomination::Fifty)
             .starts_with("50+")
     );
     assert!(
-        id.file_name(crate::ecash::CashDenomination::Fifty)
+        id.file_name(crate::qcash::CashDenomination::Fifty)
             .ends_with(".XPQ")
     );
 }
 
 #[test]
 fn repeated_withdraw_context_is_rejected_as_collision() {
-    let mut state = OffchainCoinState::new();
+    let mut state = QCashUtxoSet::new();
     let metadata = withdraw_metadata(1, 6);
     let withdrawer = Address([6; 20]);
     let tx_hash = TransactionHash([6; 32]);
@@ -152,7 +152,7 @@ fn repeated_withdraw_context_is_rejected_as_collision() {
 
     assert_eq!(
         state.apply_withdraw(withdrawer, tx_hash, &metadata, Height(0)),
-        Err(OffchainCoinError::CoinIdCollision)
+        Err(QCashUtxoError::CoinIdCollision)
     );
 }
 
@@ -165,7 +165,7 @@ fn explicit_outputs_preserve_withdraw_origin_and_indexes() {
             .unwrap();
     let withdrawer = Address([9; 20]);
     let tx_hash = TransactionHash([8; 32]);
-    let mut state = OffchainCoinState::new();
+    let mut state = QCashUtxoSet::new();
     let ids = state
         .apply_withdraw(withdrawer, tx_hash, &metadata, Height(0))
         .unwrap();
@@ -174,8 +174,8 @@ fn explicit_outputs_preserve_withdraw_origin_and_indexes() {
     for (index, id) in ids.iter().enumerate() {
         let coin = state.coin(*id).unwrap();
         assert_eq!(coin.withdrawer, withdrawer);
-        assert_eq!(coin.withdraw_tx_hash, tx_hash);
-        assert_eq!(coin.coin_index, index as u32);
+        assert_eq!(coin.outpoint.transaction_hash, tx_hash);
+        assert_eq!(coin.outpoint.output_index, index as u32);
         assert_eq!(coin.denomination, denominations[index]);
         assert_eq!(coin.commitment, commitments[index]);
     }
@@ -192,7 +192,7 @@ fn deposit_proof_redeems_files_with_valid_opening_secrets() {
     )
     .unwrap();
     let tx_hash = TransactionHash([30; 32]);
-    let mut state = OffchainCoinState::new();
+    let mut state = QCashUtxoSet::new();
     state
         .apply_withdraw(Address([31; 20]), tx_hash, &metadata, Height(0))
         .unwrap();
@@ -203,23 +203,26 @@ fn deposit_proof_redeems_files_with_valid_opening_secrets() {
     ];
     let recipient = Address([32; 20]);
     let deposit = DepositCashMetadata::new(&files, recipient).unwrap();
-    state.finalize_at(Height(99));
+    let before_maturity = QCASH_WITHDRAW_MATURITY as u64 - 1;
+    state.finalize_at(Height(before_maturity));
     assert_eq!(
-        state.apply_deposit_proof(&deposit, recipient, Height(99)),
-        Err(OffchainCoinError::CoinNotMature)
+        state.apply_deposit_proof(&deposit, recipient, Height(before_maturity)),
+        Err(QCashUtxoError::CoinNotMature)
     );
-    state.finalize_at(Height(100));
+    state.finalize_at(Height(QCASH_WITHDRAW_MATURITY as u64));
     assert_eq!(
-        state.apply_deposit_proof(&deposit, recipient, Height(101)),
+        state.apply_deposit_proof(
+            &deposit,
+            recipient,
+            Height(QCASH_WITHDRAW_MATURITY as u64 + 1),
+        ),
         Ok(Amount(150 * XPQ))
     );
-    assert_eq!(state.issued_balance(), Ok(Amount(0)));
-    assert_eq!(state.outstanding_balance(), Ok(Amount(150 * XPQ)));
-    state.finalize_at(Height(201));
-    assert_eq!(state.outstanding_balance(), Ok(Amount(0)));
+    assert_eq!(state.spendable_balance(), Ok(Amount(0)));
+    assert_eq!(state.total_value(), Ok(Amount(0)));
     assert_eq!(
         state.apply_deposit_proof(&deposit, recipient, Height(202)),
-        Err(OffchainCoinError::CoinAlreadyRedeemed)
+        Err(QCashUtxoError::UnknownCoin)
     );
 }
 
@@ -235,7 +238,7 @@ fn cash_file_rejects_wrong_opening_secret() {
 
     assert_eq!(
         CashCoinFile::new(TransactionHash([41; 32]), &metadata.outputs[0], [42; 32]),
-        Err(EcashError::InvalidCommitment)
+        Err(QCashError::InvalidCommitment)
     );
 }
 
@@ -268,18 +271,18 @@ fn cash_file_codec_roundtrips_and_rejects_corruption() {
     corrupted[20] ^= 0xff;
     assert_eq!(
         decode_cash_coin_file(&corrupted),
-        Err(EcashError::InvalidCashFile)
+        Err(QCashError::InvalidCashFile)
     );
     assert_eq!(
         decode_cash_coin_file(b"random file renamed to coin.XPQ"),
-        Err(EcashError::InvalidCashFile)
+        Err(QCashError::InvalidCashFile)
     );
 }
 
 #[test]
 fn deposit_authorization_is_bound_to_recipient() {
     let secret = [53; 32];
-    let output = crate::ecash::EcashOutput {
+    let output = crate::qcash::QCashOutput {
         coin_index: 0,
         denomination: CashDenomination::One,
         commitment: cash_coin_commitment(&secret),
@@ -292,13 +295,13 @@ fn deposit_authorization_is_bound_to_recipient() {
     assert_eq!(metadata.validate_authorizations(recipient), Ok(()));
     assert_eq!(
         metadata.validate_authorizations(attacker),
-        Err(EcashError::InvalidDepositAuthorization)
+        Err(QCashError::InvalidDepositAuthorization)
     );
 }
 
 #[test]
 fn block_journal_removes_withdraw_coins_on_reorg() {
-    let mut state = OffchainCoinState::new();
+    let mut state = QCashUtxoSet::new();
     let before = state.clone();
     let block_hash = BlockHash([60; 32]);
     let ids = state
@@ -314,13 +317,13 @@ fn block_journal_removes_withdraw_coins_on_reorg() {
 
     state.rollback_block(block_hash).unwrap();
     assert!(state.coin(ids[0]).is_none());
-    assert_eq!(state.outstanding_balance(), Ok(Amount(0)));
+    assert_eq!(state.total_value(), Ok(Amount(0)));
     assert!(state.journal(block_hash).is_none());
     assert_eq!(state, before);
 }
 
 #[test]
-fn block_journal_restores_issued_coin_when_deposit_is_reorged() {
+fn block_journal_restores_spent_utxo_when_deposit_is_reorged() {
     let secret = [70; 32];
     let withdraw = WithdrawCashMetadata::with_denominations(
         Amount(XPQ),
@@ -329,7 +332,7 @@ fn block_journal_restores_issued_coin_when_deposit_is_reorged() {
     )
     .unwrap();
     let tx_hash = TransactionHash([71; 32]);
-    let mut state = OffchainCoinState::new();
+    let mut state = QCashUtxoSet::new();
     state
         .apply_withdraw(Address([72; 20]), tx_hash, &withdraw, Height(0))
         .unwrap();
@@ -343,10 +346,7 @@ fn block_journal_restores_issued_coin_when_deposit_is_reorged() {
     state
         .apply_deposit_in_block(block_hash, Height(101), &deposit, recipient)
         .unwrap();
-    assert_eq!(
-        state.coin(id).unwrap().status,
-        OffchainCoinStatus::PendingRedeem
-    );
+    assert!(state.coin(id).is_none());
     state.rollback_block(block_hash).unwrap();
-    assert_eq!(state.coin(id).unwrap().status, OffchainCoinStatus::Issued);
+    assert_eq!(state.coin(id).unwrap().status, QCashUtxoStatus::Spendable);
 }

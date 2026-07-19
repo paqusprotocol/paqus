@@ -1,6 +1,6 @@
 use crate::consensus::supply::{Amount, XPQ};
-use crate::ecash::{
-    CashCoin, CashDenomination, EcashError, EcashMetadata, EcashOperation, WithdrawCashMetadata,
+use crate::qcash::{
+    CashCoin, CashDenomination, QCashError, QCashMetadata, QCashOperation, WithdrawCashMetadata,
     format_cash_coins,
 };
 
@@ -61,29 +61,29 @@ fn compresses_repeated_cash_coins() {
 
 #[test]
 fn creates_deposit_and_withdraw_metadata() {
-    let deposit = EcashMetadata::deposit(Amount(57 * XPQ)).unwrap();
-    assert_eq!(deposit.operation, EcashOperation::Deposit);
+    let deposit = QCashMetadata::deposit(Amount(57 * XPQ)).unwrap();
+    assert_eq!(deposit.operation, QCashOperation::Deposit);
     assert_eq!(deposit.amount(), Ok(Amount(57 * XPQ)));
     assert_eq!(deposit.validate(), Ok(()));
 
-    let withdraw = EcashMetadata::withdraw(Amount(57 * XPQ)).unwrap();
-    assert_eq!(withdraw.operation, EcashOperation::Withdraw);
+    let withdraw = QCashMetadata::withdraw(Amount(57 * XPQ)).unwrap();
+    assert_eq!(withdraw.operation, QCashOperation::Withdraw);
     assert_eq!(withdraw.amount(), Ok(Amount(57 * XPQ)));
 }
 
 #[test]
 fn rejects_zero_and_fractional_xpq_amounts() {
-    assert_eq!(format_cash_coins(Amount(0)), Err(EcashError::ZeroAmount));
+    assert_eq!(format_cash_coins(Amount(0)), Err(QCashError::ZeroAmount));
     assert_eq!(
         format_cash_coins(Amount(XPQ + 1)),
-        Err(EcashError::FractionalXpQ)
+        Err(QCashError::FractionalXpQ)
     );
 }
 
 #[test]
 fn rejects_non_canonical_metadata() {
-    let metadata = EcashMetadata {
-        operation: EcashOperation::Deposit,
+    let metadata = QCashMetadata {
+        operation: QCashOperation::Deposit,
         coins: vec![
             CashCoin {
                 denomination: CashDenomination::One,
@@ -95,7 +95,7 @@ fn rejects_non_canonical_metadata() {
             },
         ],
     };
-    assert_eq!(metadata.validate(), Err(EcashError::NonCanonicalCoins));
+    assert_eq!(metadata.validate(), Err(QCashError::NonCanonicalCoins));
 }
 
 #[test]
@@ -117,6 +117,6 @@ fn automatic_withdraw_keeps_fractional_xpq_on_chain() {
 fn automatic_withdraw_rejects_amount_without_one_whole_xpq() {
     assert_eq!(
         WithdrawCashMetadata::plan_automatic(Amount(XPQ / 10)),
-        Err(EcashError::NoCashableAmount)
+        Err(QCashError::NoCashableAmount)
     );
 }

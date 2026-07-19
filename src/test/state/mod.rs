@@ -4,7 +4,7 @@ use crate::crypto::Address;
 use crate::state::{Account, StateError};
 use crate::transaction::Transaction;
 
-mod offchain_coin;
+mod qcash_utxo;
 
 const TEST_FEE: u64 = 2;
 

@@ -1,6 +1,6 @@
 use crate::block::MAX_BLOCK_SIZE;
 use crate::codec::{
-    decode_block, decode_ecash_transaction, decode_protocol_event,
+    decode_block, decode_protocol_event, decode_qcash_transaction,
     decode_signed_protocol_transaction_at, decode_transaction,
 };
 use crate::event::MAX_PROTOCOL_EVENT_SIZE;
@@ -16,7 +16,7 @@ fn consensus_decoders_reject_length_bombs_and_trailing_garbage() {
     ];
     for bytes in length_bombs {
         let _ = decode_transaction(bytes);
-        let _ = decode_ecash_transaction(bytes);
+        let _ = decode_qcash_transaction(bytes);
         let _ = decode_protocol_event(bytes);
         let _ = decode_block(bytes);
         let _ = decode_signed_protocol_transaction_at(bytes, crate::block::Height(0), 0, ());
@@ -47,7 +47,7 @@ fn consensus_decoders_reject_oversized_input_before_deserialization() {
         .is_err()
     );
     assert!(
-        decode_ecash_transaction(&vec![0; crate::transaction::ecash::MAX_ECASH_TX_SIZE + 1])
+        decode_qcash_transaction(&vec![0; crate::transaction::qcash::MAX_QCASH_TX_SIZE + 1])
             .is_err()
     );
 }

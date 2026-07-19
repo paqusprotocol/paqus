@@ -95,3 +95,54 @@ fn distinguishes_high_difficulty_work_above_u128_range() {
     assert!(block_work(511) > block_work(510));
     assert_eq!(block_work(512), block_work(u32::MAX));
 }
+
+#[test]
+fn pruning_removes_forks_before_finality_and_keeps_active_history() {
+    let mut fork_choice = ForkChoice::new();
+    let genesis_hash = fork_choice
+        .insert_block(block(0, Hash([0; crate::crypto::HASH_SIZE]), 1, 0))
+        .unwrap();
+    let active_one_hash = fork_choice
+        .insert_block(block(1, genesis_hash, 2, 1))
+        .unwrap();
+    let stale_one_hash = fork_choice
+        .insert_block(block(1, genesis_hash, 1, 2))
+        .unwrap();
+    let stale_two_hash = fork_choice
+        .insert_block(block(2, stale_one_hash, 1, 3))
+        .unwrap();
+    let active_two_hash = fork_choice
+        .insert_block(block(2, active_one_hash, 2, 4))
+        .unwrap();
+    let recent_fork_hash = fork_choice
+        .insert_block(block(2, active_one_hash, 1, 5))
+        .unwrap();
+
+    assert_eq!(fork_choice.prune_finalized(active_one_hash), Ok(2));
+    assert!(fork_choice.contains(&genesis_hash));
+    assert!(fork_choice.contains(&active_one_hash));
+    assert!(fork_choice.contains(&active_two_hash));
+    assert!(fork_choice.contains(&recent_fork_hash));
+    assert!(!fork_choice.contains(&stale_one_hash));
+    assert!(!fork_choice.contains(&stale_two_hash));
+}
+
+#[test]
+fn pruning_rejects_an_anchor_outside_the_best_chain() {
+    let mut fork_choice = ForkChoice::new();
+    let genesis_hash = fork_choice
+        .insert_block(block(0, Hash([0; crate::crypto::HASH_SIZE]), 1, 0))
+        .unwrap();
+    fork_choice
+        .insert_block(block(1, genesis_hash, 2, 1))
+        .unwrap();
+    let stale_hash = fork_choice
+        .insert_block(block(1, genesis_hash, 1, 2))
+        .unwrap();
+
+    assert_eq!(
+        fork_choice.prune_finalized(stale_hash),
+        Err(ForkChoiceError::FinalizedBlockNotOnBestChain)
+    );
+    assert_eq!(fork_choice.len(), 3);
+}

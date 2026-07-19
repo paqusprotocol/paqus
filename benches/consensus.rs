@@ -9,22 +9,18 @@ use paqus::crypto::{
     Address, BlockHash, HASH_SIZE, Hash, HashDomain, address_from_public_key, cached_verifying_key,
     domain_hash, generate_keypair, sign, verify,
 };
-use paqus::ecash::{
-    CashCoinFile, DepositCashMetadata, EcashOutput, decode_cash_coin_file, encode_cash_coin_file,
-};
-use paqus::ecash::{CashDenomination, WithdrawCashMetadata, cash_coin_commitment};
 use paqus::ledger::{
     Ledger, SparseStateTree, calculate_state_root, create_account_state_proof,
     verify_account_state_proof,
 };
 use paqus::ledger::{fork_choice::ForkChoice, plan_reorg};
-use paqus::snapshot::{
-    SNAPSHOT_INTERVAL, SNAPSHOT_MIN_CONFIRMATIONS, is_snapshot_finalized, is_snapshot_height,
-    snapshot_root,
+use paqus::qcash::{
+    CashCoinFile, DepositCashMetadata, QCashOutput, decode_cash_coin_file, encode_cash_coin_file,
 };
+use paqus::qcash::{CashDenomination, WithdrawCashMetadata, cash_coin_commitment};
 use paqus::state::Account;
 use paqus::transaction::{
-    EcashTransaction, MAX_TX_SIZE, SignedEcashTransaction, SignedProtocolTransaction,
+    MAX_TX_SIZE, QCashTransaction, SignedProtocolTransaction, SignedQCashTransaction,
     SignedTransaction, Transaction,
 };
 use std::collections::BTreeMap;
@@ -276,12 +272,12 @@ fn two_block_competing_branches() -> (Ledger, ForkChoice, BlockHash, Vec<BlockHa
 
 fn applicable_mixed_family_block() -> (Ledger, Block) {
     let transfer_key = generate_keypair();
-    let ecash_key = generate_keypair();
+    let qcash_key = generate_keypair();
 
     let transfer_sender = address_from_public_key(&transfer_key.public_key);
-    let ecash_owner = address_from_public_key(&ecash_key.public_key);
+    let qcash_owner = address_from_public_key(&qcash_key.public_key);
     let miner = Address([99; 20]);
-    let height = Height(SNAPSHOT_INTERVAL);
+    let height = Height(1);
     let anchor = Block::new(
         Height(height.0 - 1),
         Hash([0; HASH_SIZE]),
@@ -298,7 +294,7 @@ fn applicable_mixed_family_block() -> (Ledger, Block) {
     ledger
         .create_account(transfer_sender, Amount(1_000))
         .unwrap();
-    ledger.create_account(ecash_owner, Amount(2 * XPQ)).unwrap();
+    ledger.create_account(qcash_owner, Amount(2 * XPQ)).unwrap();
 
     let transfer = Transaction::new_at(
         transfer_sender,
@@ -314,8 +310,8 @@ fn applicable_mixed_family_block() -> (Ledger, Block) {
         sign(&transfer_key.secret_key, &transfer.signing_bytes()),
     );
 
-    let ecash = EcashTransaction::withdraw(
-        ecash_owner,
+    let qcash = QCashTransaction::withdraw(
+        qcash_owner,
         Amount(XPQ),
         Amount(3),
         Nonce(0),
@@ -327,10 +323,10 @@ fn applicable_mixed_family_block() -> (Ledger, Block) {
         .unwrap(),
     )
     .with_timestamp(TIMESTAMP + 1);
-    let signed_ecash = SignedEcashTransaction::new(
-        ecash.clone(),
-        ecash_key.public_key,
-        sign(&ecash_key.secret_key, &ecash.signing_bytes()),
+    let signed_qcash = SignedQCashTransaction::new(
+        qcash.clone(),
+        qcash_key.public_key,
+        sign(&qcash_key.secret_key, &qcash.signing_bytes()),
     );
     let mut block = Block::with_all_transactions(
         height,
@@ -340,7 +336,7 @@ fn applicable_mixed_family_block() -> (Ledger, Block) {
         TIMESTAMP + 1,
         Nonce(1),
         vec![signed_transfer],
-        vec![signed_ecash],
+        vec![signed_qcash],
     )
     .unwrap();
     block.coinbase.as_mut().unwrap().fees = block.checked_total_fees().unwrap();
@@ -377,9 +373,9 @@ fn crypto_operations(c: &mut Criterion) {
     group.finish();
 }
 
-fn ecash_file_operations(c: &mut Criterion) {
+fn qcash_file_operations(c: &mut Criterion) {
     let opening_secret = [0x42; 32];
-    let output = EcashOutput {
+    let output = QCashOutput {
         coin_index: 0,
         denomination: CashDenomination::OneHundred,
         commitment: cash_coin_commitment(&opening_secret),
@@ -393,7 +389,7 @@ fn ecash_file_operations(c: &mut Criterion) {
     let encoded = encode_cash_coin_file(&file).unwrap();
     let recipient = Address([0x52; 20]);
     let deposit = DepositCashMetadata::new(&[file], recipient).unwrap();
-    let mut group = c.benchmark_group("ecash_file_operations");
+    let mut group = c.benchmark_group("qcash_file_operations");
     group.throughput(Throughput::Bytes(encoded.len() as u64));
 
     group.bench_function("derive_coin_commitment", |b| {
@@ -475,8 +471,8 @@ fn protocol_envelope_operations(c: &mut Criterion) {
             SignedProtocolTransaction::Transfer(block.transactions[0].clone()),
         ),
         (
-            "ecash",
-            SignedProtocolTransaction::Ecash(block.ecash_transactions[0].clone()),
+            "qcash",
+            SignedProtocolTransaction::QCash(block.qcash_transactions[0].clone()),
         ),
     ];
     let mut group = c.benchmark_group("protocol_envelope_operations");
@@ -512,50 +508,6 @@ fn protocol_envelope_operations(c: &mut Criterion) {
             |b, envelope| b.iter(|| black_box(black_box(envelope).wtxid())),
         );
     }
-    group.finish();
-}
-
-fn snapshot_operations(c: &mut Criterion) {
-    let height = Height(SNAPSHOT_INTERVAL);
-    let block_hash = BlockHash([1; HASH_SIZE]);
-    let state_root = paqus::crypto::StateRoot([2; HASH_SIZE]);
-    let accounts_root = Hash([3; HASH_SIZE]);
-    let finalized_tip = Height(height.0 + SNAPSHOT_MIN_CONFIRMATIONS as u64);
-    let candidate_heights: Vec<_> = (1..=1_000_000_u64).step_by(1_000).map(Height).collect();
-    let mut group = c.benchmark_group("snapshot_operations");
-
-    group.bench_function("snapshot_root_commitment", |b| {
-        b.iter(|| {
-            black_box(snapshot_root(
-                black_box(height),
-                black_box(block_hash),
-                black_box(state_root),
-                black_box(accounts_root),
-            ))
-        })
-    });
-    group.bench_function("snapshot_height_rule", |b| {
-        b.iter(|| black_box(is_snapshot_height(black_box(height))))
-    });
-    group.bench_function("snapshot_finality_rule", |b| {
-        b.iter(|| {
-            black_box(is_snapshot_finalized(
-                black_box(height),
-                black_box(finalized_tip),
-            ))
-        })
-    });
-    group.throughput(Throughput::Elements(candidate_heights.len() as u64));
-    group.bench_function("scan_1000_candidate_heights", |b| {
-        b.iter(|| {
-            black_box(
-                black_box(&candidate_heights)
-                    .iter()
-                    .filter(|height| is_snapshot_height(**height))
-                    .count(),
-            )
-        })
-    });
     group.finish();
 }
 
@@ -1065,8 +1017,8 @@ criterion_group! {
     name = standard_benches;
     config = standard_config();
     targets = canonical_codec, decoder_rejection, transaction_identity, crypto_operations,
-        ecash_file_operations, protocol_event_operations, protocol_envelope_operations,
-        snapshot_operations, block_validation, block_commitments,
+        qcash_file_operations, protocol_event_operations, protocol_envelope_operations,
+        block_validation, block_commitments,
         state_root, state_proof
 }
 

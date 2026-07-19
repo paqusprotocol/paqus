@@ -297,9 +297,9 @@ fn rejects_signed_transaction_with_invalid_signature() {
 }
 
 #[test]
-fn validates_signed_ecash_withdraw() {
-    use crate::ecash::{CashDenomination, WithdrawCashMetadata, cash_coin_commitment};
-    use crate::transaction::{EcashTransaction, SignedEcashTransaction};
+fn validates_signed_qcash_withdraw() {
+    use crate::qcash::{CashDenomination, WithdrawCashMetadata, cash_coin_commitment};
+    use crate::transaction::{QCashTransaction, SignedQCashTransaction};
 
     let keypair = generate_keypair();
     let signer = address_from_public_key(&keypair.public_key);
@@ -312,7 +312,7 @@ fn validates_signed_ecash_withdraw() {
         &commitments,
     )
     .unwrap();
-    let transaction = EcashTransaction::withdraw(
+    let transaction = QCashTransaction::withdraw(
         signer,
         Amount(1_000 * crate::consensus::supply::XPQ),
         Amount(TEST_FEE),
@@ -320,15 +320,15 @@ fn validates_signed_ecash_withdraw() {
         metadata,
     );
     let signature = sign(&keypair.secret_key, &transaction.signing_bytes());
-    let signed = SignedEcashTransaction::new(transaction, keypair.public_key, signature);
+    let signed = SignedQCashTransaction::new(transaction, keypair.public_key, signature);
 
     assert_eq!(signed.validate_signed(), Ok(()));
 }
 
 #[test]
-fn rejects_ecash_withdraw_when_outputs_do_not_match_amount() {
-    use crate::ecash::{CashDenomination, WithdrawCashMetadata, cash_coin_commitment};
-    use crate::transaction::EcashTransaction;
+fn rejects_qcash_withdraw_when_outputs_do_not_match_amount() {
+    use crate::qcash::{CashDenomination, WithdrawCashMetadata, cash_coin_commitment};
+    use crate::transaction::QCashTransaction;
 
     let metadata = WithdrawCashMetadata::with_denominations(
         Amount(100 * crate::consensus::supply::XPQ),
@@ -336,7 +336,7 @@ fn rejects_ecash_withdraw_when_outputs_do_not_match_amount() {
         &[cash_coin_commitment(&[1; 32])],
     )
     .unwrap();
-    let transaction = EcashTransaction::withdraw(
+    let transaction = QCashTransaction::withdraw(
         address(1),
         Amount(50 * crate::consensus::supply::XPQ),
         Amount(TEST_FEE),
@@ -346,6 +346,6 @@ fn rejects_ecash_withdraw_when_outputs_do_not_match_amount() {
 
     assert_eq!(
         transaction.validate(),
-        Err(TransactionError::InvalidEcashMetadata)
+        Err(TransactionError::InvalidQCashMetadata)
     );
 }

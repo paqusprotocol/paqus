@@ -10,8 +10,6 @@ pub const PROOF_OF_WORK_HASH_SIZE: usize = 64;
 const_assert_eq!(HASH_SIZE, 32);
 const_assert_eq!(PROOF_OF_WORK_HASH_SIZE, 64);
 
-pub const SNAPSHOT_ROOT_DOMAIN: &[u8] = b"PAQUS_SNAPSHOT_ROOT_V1";
-
 pub type HashBytes = [u8; HASH_SIZE];
 pub type ProofOfWorkHashBytes = [u8; PROOF_OF_WORK_HASH_SIZE];
 
@@ -219,11 +217,10 @@ pub enum HashDomain {
     WitnessMerkleNode,
     AccountState,
     StateNode,
-    SnapshotRoot,
-    EcashCoin,
-    EcashCommitment,
-    EcashFile,
-    EcashState,
+    QCashCoin,
+    QCashCommitment,
+    QCashFile,
+    QCashState,
     ProtocolEvent,
     ProtocolState,
     Raw,
@@ -241,11 +238,12 @@ impl HashDomain {
             HashDomain::WitnessMerkleNode => b"PAQUS_HASH_WITNESS_MERKLE_NODE_V1",
             HashDomain::AccountState => b"PAQUS_HASH_ACCOUNT_STATE",
             HashDomain::StateNode => b"PAQUS_HASH_STATE_NODE",
-            HashDomain::SnapshotRoot => SNAPSHOT_ROOT_DOMAIN,
-            HashDomain::EcashCoin => b"PAQUS_HASH_ECASH_COIN_V1",
-            HashDomain::EcashCommitment => b"PAQUS_HASH_ECASH_COMMITMENT_V1",
-            HashDomain::EcashFile => b"PAQUS_HASH_ECASH_FILE_V1",
-            HashDomain::EcashState => b"PAQUS_HASH_ECASH_STATE_V1",
+            // These legacy version-1 tags are consensus bytes. Their spelling
+            // remains stable even though the public feature name is QCash.
+            HashDomain::QCashCoin => b"PAQUS_HASH_ECASH_COIN_V1",
+            HashDomain::QCashCommitment => b"PAQUS_HASH_ECASH_COMMITMENT_V1",
+            HashDomain::QCashFile => b"PAQUS_HASH_ECASH_FILE_V1",
+            HashDomain::QCashState => b"PAQUS_HASH_ECASH_STATE_V1",
             HashDomain::ProtocolEvent => b"PAQUS_HASH_PROTOCOL_EVENT_V1",
             HashDomain::ProtocolState => b"PAQUS_HASH_PROTOCOL_STATE_V1",
             HashDomain::Raw => b"PAQUS_HASH_RAW",

@@ -7,7 +7,7 @@ use crate::crypto::{
 };
 pub use crate::error::BlockError;
 use crate::transaction::{
-    EcashTransaction, SignedEcashTransaction, SignedTransaction, Transaction, Witness,
+    QCashTransaction, SignedQCashTransaction, SignedTransaction, Transaction, Witness,
 };
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
@@ -107,7 +107,7 @@ pub struct Block {
     pub genesis_allocations: Vec<GenesisAllocation>,
     pub coinbase: Option<CoinbaseTransaction>,
     pub transactions: Vec<SignedTransaction>,
-    pub ecash_transactions: Vec<SignedEcashTransaction>,
+    pub qcash_transactions: Vec<SignedQCashTransaction>,
 }
 
 /// Consensus encoding keeps every payload section before every witness section.
@@ -117,7 +117,7 @@ impl BorshSerialize for Block {
         let keys = witness_dictionary(self);
         keys.serialize(writer)?;
         serialize_indexed_witnesses(&self.transactions, &keys, writer, |tx| &tx.witness)?;
-        serialize_indexed_witnesses(&self.ecash_transactions, &keys, writer, |tx| &tx.witness)
+        serialize_indexed_witnesses(&self.qcash_transactions, &keys, writer, |tx| &tx.witness)
     }
 }
 
@@ -129,7 +129,7 @@ pub(crate) fn serialize_stripped_block<W: Write>(
     block.genesis_allocations.serialize(writer)?;
     block.coinbase.serialize(writer)?;
     serialize_projection(&block.transactions, writer, |tx| &tx.transaction)?;
-    serialize_projection(&block.ecash_transactions, writer, |tx| &tx.transaction)
+    serialize_projection(&block.qcash_transactions, writer, |tx| &tx.transaction)
 }
 
 impl BorshDeserialize for Block {
@@ -139,7 +139,7 @@ impl BorshDeserialize for Block {
         let coinbase = Option::<CoinbaseTransaction>::deserialize_reader(reader)?;
 
         let transactions = Vec::<Transaction>::deserialize_reader(reader)?;
-        let ecash_transactions = Vec::<EcashTransaction>::deserialize_reader(reader)?;
+        let qcash_transactions = Vec::<QCashTransaction>::deserialize_reader(reader)?;
 
         let keys = Vec::<PublicKey>::deserialize_reader(reader)?;
         if keys
@@ -153,7 +153,7 @@ impl BorshDeserialize for Block {
             ));
         }
         let transaction_witnesses = decode_indexed_witnesses(reader, &keys)?;
-        let ecash_witnesses = decode_indexed_witnesses(reader, &keys)?;
+        let qcash_witnesses = decode_indexed_witnesses(reader, &keys)?;
 
         let block = Self {
             header,
@@ -167,10 +167,10 @@ impl BorshDeserialize for Block {
                     witness,
                 },
             )?,
-            ecash_transactions: zip_witnesses(
-                ecash_transactions,
-                ecash_witnesses,
-                |transaction, witness| SignedEcashTransaction {
+            qcash_transactions: zip_witnesses(
+                qcash_transactions,
+                qcash_witnesses,
+                |transaction, witness| SignedQCashTransaction {
                     transaction,
                     witness,
                 },
@@ -200,7 +200,7 @@ fn witness_dictionary(block: &Block) -> Vec<PublicKey> {
         .map(|tx| tx.witness.public_key)
         .chain(
             block
-                .ecash_transactions
+                .qcash_transactions
                 .iter()
                 .map(|tx| tx.witness.public_key),
         )
@@ -462,16 +462,16 @@ impl Block {
         genesis_allocations: Vec<GenesisAllocation>,
         coinbase: Option<CoinbaseTransaction>,
         transactions: Vec<SignedTransaction>,
-        ecash_transactions: Vec<SignedEcashTransaction>,
+        qcash_transactions: Vec<SignedQCashTransaction>,
     ) -> Self {
         let previous_hash = previous_hash.into();
         let merkle_root = calculate_merkle_root(
             &genesis_allocations,
             coinbase.as_ref(),
             &transactions,
-            &ecash_transactions,
+            &qcash_transactions,
         );
-        let witness_root = calculate_witness_merkle_root(&transactions, &ecash_transactions);
+        let witness_root = calculate_witness_merkle_root(&transactions, &qcash_transactions);
         let state_root = StateRoot::ZERO;
         Self {
             header: BlockHeader::new(
@@ -488,7 +488,7 @@ impl Block {
             genesis_allocations,
             coinbase,
             transactions,
-            ecash_transactions,
+            qcash_transactions,
         }
     }
 
@@ -502,12 +502,12 @@ impl Block {
         timestamp: u64,
         nonce: BlockNonce,
         transactions: Vec<SignedTransaction>,
-        ecash_transactions: Vec<SignedEcashTransaction>,
+        qcash_transactions: Vec<SignedQCashTransaction>,
     ) -> Result<Self, BlockError> {
         if height.0 == 0 {
             return Err(BlockError::InvalidTransaction);
         }
-        let fees = checked_fees(&transactions, &ecash_transactions)?;
+        let fees = checked_fees(&transactions, &qcash_transactions)?;
         Ok(Self::with_parts(
             height,
             previous_hash,
@@ -522,7 +522,7 @@ impl Block {
                 fees,
             )),
             transactions,
-            ecash_transactions,
+            qcash_transactions,
         ))
     }
 
@@ -572,7 +572,7 @@ impl Block {
             return Err(BlockError::InvalidTransaction);
         }
         if self
-            .ecash_transactions
+            .qcash_transactions
             .iter()
             .any(|tx| tx.validate_signed_for_height(self.height()).is_err())
         {
@@ -599,7 +599,7 @@ impl Block {
                 &self.genesis_allocations,
                 self.coinbase.as_ref(),
                 &self.transactions,
-                &self.ecash_transactions,
+                &self.qcash_transactions,
             )
         {
             return Err(BlockError::InvalidMerkleRoot);
@@ -649,7 +649,7 @@ impl Block {
     }
 
     pub fn checked_total_fees(&self) -> Result<Amount, BlockError> {
-        checked_fees(&self.transactions, &self.ecash_transactions)
+        checked_fees(&self.transactions, &self.qcash_transactions)
     }
 
     pub fn miner_revenue(&self, subsidy: Amount) -> MinerRevenue {
@@ -660,7 +660,7 @@ impl Block {
     }
 
     pub fn transaction_count(&self) -> usize {
-        self.transactions.len() + self.ecash_transactions.len()
+        self.transactions.len() + self.qcash_transactions.len()
     }
 
     pub fn is_genesis(&self) -> bool {
@@ -696,12 +696,12 @@ impl Block {
             &self.genesis_allocations,
             self.coinbase.as_ref(),
             &self.transactions,
-            &self.ecash_transactions,
+            &self.qcash_transactions,
         )
     }
 
     pub fn calculate_witness_merkle_root(&self) -> WitnessMerkleHash {
-        calculate_witness_merkle_root(&self.transactions, &self.ecash_transactions)
+        calculate_witness_merkle_root(&self.transactions, &self.qcash_transactions)
     }
 
     pub fn refresh_merkle_root(&mut self) {
@@ -728,7 +728,7 @@ fn calculate_merkle_root(
     genesis_allocations: &[GenesisAllocation],
     coinbase: Option<&CoinbaseTransaction>,
     transactions: &[SignedTransaction],
-    ecash_transactions: &[SignedEcashTransaction],
+    qcash_transactions: &[SignedQCashTransaction],
 ) -> MerkleHash {
     if genesis_allocations.is_empty() && coinbase.is_none() && transactions.is_empty() {
         return MerkleHash::ZERO;
@@ -743,7 +743,7 @@ fn calculate_merkle_root(
                 .iter()
                 .map(|transaction| transaction.hash().as_hash()),
         )
-        .chain(ecash_transactions.iter().map(|tx| tx.hash().as_hash()))
+        .chain(qcash_transactions.iter().map(|tx| tx.hash().as_hash()))
         .collect();
 
     while hashes.len() > 1 {
@@ -768,12 +768,12 @@ fn calculate_merkle_root(
 
 fn calculate_witness_merkle_root(
     transactions: &[SignedTransaction],
-    ecash_transactions: &[SignedEcashTransaction],
+    qcash_transactions: &[SignedQCashTransaction],
 ) -> WitnessMerkleHash {
     let mut hashes: Vec<Hash> = transactions
         .iter()
         .map(|tx| tx.wtxid().as_hash())
-        .chain(ecash_transactions.iter().map(|tx| tx.wtxid().as_hash()))
+        .chain(qcash_transactions.iter().map(|tx| tx.wtxid().as_hash()))
         .collect();
 
     if hashes.is_empty() {
@@ -801,12 +801,12 @@ fn calculate_witness_merkle_root(
 
 fn checked_fees(
     transactions: &[SignedTransaction],
-    ecash_transactions: &[SignedEcashTransaction],
+    qcash_transactions: &[SignedQCashTransaction],
 ) -> Result<Amount, BlockError> {
     transactions
         .iter()
         .map(|tx| tx.transaction.fee.0)
-        .chain(ecash_transactions.iter().map(|tx| tx.transaction.fee.0))
+        .chain(qcash_transactions.iter().map(|tx| tx.transaction.fee.0))
         .try_fold(0u64, |total, fee| total.checked_add(fee))
         .map(Amount)
         .ok_or(BlockError::FeeOverflow)

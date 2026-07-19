@@ -6,18 +6,19 @@ use crate::crypto::{
     Address, HashDomain, PublicKey, Signature, TransactionHash, address_from_public_key,
     domain_hash, verify,
 };
-use crate::ecash::{DepositCashMetadata, WithdrawCashMetadata};
 use crate::error::TransactionError;
+use crate::qcash::{DepositCashMetadata, WithdrawCashMetadata};
 use borsh::{BorshDeserialize, BorshSerialize};
 
-pub const ECASH_TRANSACTION_VERSION: u8 = 1;
-/// eCash carries one or more post-quantum coin authorizations in addition to
+pub const QCASH_TRANSACTION_VERSION: u8 = 1;
+/// QCash carries one or more post-quantum coin authorizations in addition to
 /// the transaction witness, so it needs a dedicated bounded envelope.
-pub const MAX_ECASH_TX_SIZE: usize = 64 * 1024;
-const ECASH_SIGNATURE_DOMAIN: &[u8] = b"PAQUSCORE_ECASH_TX_V1";
+pub const MAX_QCASH_TX_SIZE: usize = 64 * 1024;
+// Keep the version-1 signing domain stable across the public QCash rename.
+const QCASH_SIGNATURE_DOMAIN: &[u8] = b"PAQUSCORE_ECASH_TX_V1";
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, Hash)]
-pub enum EcashTransactionKind {
+pub enum QCashTransactionKind {
     WithdrawCash {
         amount: Amount,
         metadata: WithdrawCashMetadata,
@@ -29,17 +30,17 @@ pub enum EcashTransactionKind {
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct EcashTransaction {
+pub struct QCashTransaction {
     pub version: u8,
     pub signer: Address,
     pub fee: Amount,
     pub nonce: AccountNonce,
     pub timestamp: u64,
-    pub kind: EcashTransactionKind,
+    pub kind: QCashTransactionKind,
     pub validity: ValidityWindow,
 }
 
-impl EcashTransaction {
+impl QCashTransaction {
     pub fn withdraw(
         signer: Address,
         amount: Amount,
@@ -48,12 +49,12 @@ impl EcashTransaction {
         metadata: WithdrawCashMetadata,
     ) -> Self {
         Self {
-            version: ECASH_TRANSACTION_VERSION,
+            version: QCASH_TRANSACTION_VERSION,
             signer,
             fee,
             nonce,
             timestamp: 0,
-            kind: EcashTransactionKind::WithdrawCash { amount, metadata },
+            kind: QCashTransactionKind::WithdrawCash { amount, metadata },
             validity: ValidityWindow::UNBOUNDED,
         }
     }
@@ -66,12 +67,12 @@ impl EcashTransaction {
         metadata: DepositCashMetadata,
     ) -> Self {
         Self {
-            version: ECASH_TRANSACTION_VERSION,
+            version: QCASH_TRANSACTION_VERSION,
             signer,
             fee,
             nonce,
             timestamp: 0,
-            kind: EcashTransactionKind::DepositCash {
+            kind: QCashTransactionKind::DepositCash {
                 recipient,
                 metadata,
             },
@@ -89,33 +90,33 @@ impl EcashTransaction {
     }
 
     pub fn validate(&self) -> Result<(), TransactionError> {
-        if self.version != ECASH_TRANSACTION_VERSION {
+        if self.version != QCASH_TRANSACTION_VERSION {
             return Err(TransactionError::UnsupportedVersion);
         }
         match &self.kind {
-            EcashTransactionKind::WithdrawCash { amount, metadata } => {
+            QCashTransactionKind::WithdrawCash { amount, metadata } => {
                 if amount.0 == 0 {
                     return Err(TransactionError::ZeroAmount);
                 }
                 metadata
                     .validate_amount(*amount)
-                    .map_err(|_| TransactionError::InvalidEcashMetadata)?;
+                    .map_err(|_| TransactionError::InvalidQCashMetadata)?;
             }
-            EcashTransactionKind::DepositCash {
+            QCashTransactionKind::DepositCash {
                 recipient,
                 metadata,
             } => {
                 metadata
                     .validate_authorizations(*recipient)
-                    .map_err(|_| TransactionError::InvalidEcashMetadata)?;
+                    .map_err(|_| TransactionError::InvalidQCashMetadata)?;
                 let amount = metadata
                     .amount()
-                    .map_err(|_| TransactionError::InvalidEcashMetadata)?;
+                    .map_err(|_| TransactionError::InvalidQCashMetadata)?;
                 if self.fee.0 >= amount.0 {
-                    return Err(TransactionError::EcashFeeExceedsAmount);
+                    return Err(TransactionError::QCashFeeExceedsAmount);
                 }
                 if *recipient == Address([0; 20]) {
-                    return Err(TransactionError::InvalidEcashRecipient);
+                    return Err(TransactionError::InvalidQCashRecipient);
                 }
             }
         }
@@ -129,10 +130,10 @@ impl EcashTransaction {
 
     pub fn amount(&self) -> Result<Amount, TransactionError> {
         match &self.kind {
-            EcashTransactionKind::WithdrawCash { amount, .. } => Ok(*amount),
-            EcashTransactionKind::DepositCash { metadata, .. } => metadata
+            QCashTransactionKind::WithdrawCash { amount, .. } => Ok(*amount),
+            QCashTransactionKind::DepositCash { metadata, .. } => metadata
                 .amount()
-                .map_err(|_| TransactionError::InvalidEcashMetadata),
+                .map_err(|_| TransactionError::InvalidQCashMetadata),
         }
     }
 
@@ -142,8 +143,8 @@ impl EcashTransaction {
 
     pub fn signing_bytes(&self) -> Vec<u8> {
         let payload = self.to_bytes();
-        let mut bytes = Vec::with_capacity(ECASH_SIGNATURE_DOMAIN.len() + payload.len());
-        bytes.extend_from_slice(ECASH_SIGNATURE_DOMAIN);
+        let mut bytes = Vec::with_capacity(QCASH_SIGNATURE_DOMAIN.len() + payload.len());
+        bytes.extend_from_slice(QCASH_SIGNATURE_DOMAIN);
         bytes.extend_from_slice(&payload);
         bytes
     }
@@ -154,13 +155,13 @@ impl EcashTransaction {
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct SignedEcashTransaction {
-    pub transaction: EcashTransaction,
+pub struct SignedQCashTransaction {
+    pub transaction: QCashTransaction,
     pub witness: Witness,
 }
 
-impl SignedEcashTransaction {
-    pub fn new(transaction: EcashTransaction, public_key: PublicKey, signature: Signature) -> Self {
+impl SignedQCashTransaction {
+    pub fn new(transaction: QCashTransaction, public_key: PublicKey, signature: Signature) -> Self {
         Self {
             transaction,
             witness: Witness::new(public_key, signature),
@@ -169,7 +170,7 @@ impl SignedEcashTransaction {
 
     pub fn validate_signed(&self) -> Result<(), TransactionError> {
         self.transaction.validate()?;
-        if self.to_bytes().len() > MAX_ECASH_TX_SIZE {
+        if self.to_bytes().len() > MAX_QCASH_TX_SIZE {
             return Err(TransactionError::TransactionTooLarge);
         }
         if self.witness.public_key.0.iter().all(|byte| *byte == 0) {
@@ -202,7 +203,7 @@ impl SignedEcashTransaction {
 
     pub fn wtxid(&self) -> crate::crypto::WitnessTransactionHash {
         crate::codec::family_witness_transaction_hash(
-            super::TransactionFamily::Ecash,
+            super::TransactionFamily::QCash,
             &self.to_bytes(),
         )
     }

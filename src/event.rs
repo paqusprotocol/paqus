@@ -35,11 +35,11 @@ pub enum ProtocolEventKind {
         amount: Amount,
         fee: Amount,
     },
-    EcashWithdrawn {
+    QCashWithdrawn {
         signer: Address,
         amount: Amount,
     },
-    EcashDeposited {
+    QCashDeposited {
         signer: Address,
         recipient: Address,
         amount: Amount,

@@ -1,5 +1,5 @@
 use crate::block::BlockError;
-use crate::state::{OffchainCoinError, StateError};
+use crate::state::{QCashUtxoError, StateError};
 use crate::transaction::TransactionError;
 use std::error::Error;
 use std::fmt;
@@ -22,8 +22,8 @@ pub enum LedgerError {
     InvalidTimestamp,
     DuplicateBlock,
     SupplyOverflow,
-    InvalidOffchainCoin(OffchainCoinError),
-    MissingEcashAccountJournal,
+    InvalidQCashUtxo(QCashUtxoError),
+    MissingQCashAccountJournal,
 }
 
 impl fmt::Display for LedgerError {
@@ -55,19 +55,19 @@ impl fmt::Display for LedgerError {
             LedgerError::SupplyOverflow => {
                 f.write_str("ledger total supply exceeds maximum supply")
             }
-            LedgerError::InvalidOffchainCoin(error) => {
-                write!(f, "invalid offchain coin state transition: {error}")
+            LedgerError::InvalidQCashUtxo(error) => {
+                write!(f, "invalid QCash UTXO state transition: {error}")
             }
-            LedgerError::MissingEcashAccountJournal => {
-                f.write_str("eCash account block journal was not found")
+            LedgerError::MissingQCashAccountJournal => {
+                f.write_str("QCash account block journal was not found")
             }
         }
     }
 }
 
-impl From<OffchainCoinError> for LedgerError {
-    fn from(error: OffchainCoinError) -> Self {
-        Self::InvalidOffchainCoin(error)
+impl From<QCashUtxoError> for LedgerError {
+    fn from(error: QCashUtxoError) -> Self {
+        Self::InvalidQCashUtxo(error)
     }
 }
 
