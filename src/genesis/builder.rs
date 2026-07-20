@@ -31,10 +31,10 @@ pub const PAQUS_CHAIN: ChainParams = ChainParams {
     coin_name: "XPQ",
     unit_name: "paqus",
     protocol_stage: "Mainnet",
-    protocol_version: 1,
+    protocol_version: 2,
     pow_algorithm: "sha3-512",
-    difficulty_algorithm: "asert",
-    network_magic: [0x58, 0x50, 0x51, 0x01],
+    difficulty_algorithm: "asert-bits-v2",
+    network_magic: [0x58, 0x50, 0x51, 0x02],
     genesis: GenesisParams {
         miner_address: [0; crate::crypto::ADDRESS_SIZE],
         // Fixed timestamp of the first canonical genesis build. This must stay static so all nodes
@@ -47,8 +47,8 @@ pub const PAQUS_CHAIN: ChainParams = ChainParams {
 /// Frozen mainnet identity for the canonical encoding and block format.
 /// Never update this value without defining a new protocol version and chain identity.
 pub const FROZEN_GENESIS_HASH: [u8; HASH_SIZE] = [
-    47, 99, 106, 110, 206, 201, 54, 25, 228, 54, 246, 111, 66, 186, 151, 127, 137, 163, 18, 100,
-    33, 233, 219, 20, 152, 25, 87, 106, 81, 227, 32, 184,
+    64, 129, 62, 134, 193, 213, 37, 97, 244, 253, 76, 217, 157, 26, 57, 219, 40, 57, 244, 197, 149,
+    126, 64, 244, 82, 129, 210, 131, 227, 254, 31, 33,
 ];
 
 pub const CURRENT_CHAIN_PARAMS: ChainParams = PAQUS_CHAIN;

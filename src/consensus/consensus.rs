@@ -15,7 +15,9 @@ pub const BLOCK_TIME: u32 = 5 * MINUTE;
 pub const BLOCKS_PER_DAY: u64 = DAY as u64 / BLOCK_TIME as u64;
 pub const BLOCKS_PER_YEAR: u64 = 365 * BLOCKS_PER_DAY;
 pub const MIN_DIFFICULTY: u32 = 1;
-pub const DIFFICULTY_START: u32 = 1;
+/// Bootstrap work target for protocol v2. At roughly 100 kH/s, 25 leading zero
+/// bits produces a block in about 5.6 minutes on average.
+pub const DIFFICULTY_START: u32 = 25;
 pub const DIFFICULTY_ADJUSTMENT_INTERVAL: u64 = 1;
 pub const ASERT_HALF_LIFE: u64 = 2 * DAY as u64;
 pub const MAX_FUTURE_TIME: u32 = 2 * MINUTE;

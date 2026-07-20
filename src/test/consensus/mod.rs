@@ -237,6 +237,14 @@ fn asert_keeps_difficulty_on_schedule() {
 }
 
 #[test]
+fn protocol_v2_bootstrap_difficulty_targets_five_minutes_at_reference_hashrate() {
+    assert_eq!(crate::consensus::DIFFICULTY_START, 25);
+    let expected_hashes = 1_u64 << crate::consensus::DIFFICULTY_START;
+    let expected_seconds_at_100_khs = expected_hashes / 100_000;
+    assert!((300..=360).contains(&expected_seconds_at_100_khs));
+}
+
+#[test]
 fn asert_adjusts_from_anchor_for_hashrate_swings() {
     let consensus = Consensus::with_default_config();
     let blocks = ASERT_HALF_LIFE / BLOCK_TIME as u64;

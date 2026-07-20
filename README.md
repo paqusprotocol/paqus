@@ -4,7 +4,7 @@ Consensus library for the Paqus proof-of-work blockchain. The crate provides
 canonical encoding, post-quantum signatures, transactions, blocks, ledger state,
 QCash UTXOs, fork choice, reorg handling, rewards, and dynamic genesis rules.
 
-Paqus currently uses protocol version 1. Consensus changes must remain
+Paqus currently uses protocol version 2. Consensus changes must remain
 deterministic across every node.
 
 ## Current Protocol
@@ -16,9 +16,9 @@ Coin:                      XPQ
 Smallest unit:             paqus
 Decimals:                  5
 Protocol stage:            Mainnet
-Protocol version:          1
+Protocol version:          2
 Proof of work:             SHA3-512
-Difficulty:                per-block ASERT
+Difficulty:                per-block ASERT, starting at 25 bits
 Target block time:         5 minutes
 Transaction confirmation: 5 blocks  (~25 minutes)
 Hard finality:             50 blocks (~4 hours 10 minutes)
@@ -29,9 +29,9 @@ Tail emission:             0.747 XPQ from height 525,600
 Genesis premine:           none
 ```
 
-The protocol and storage identifiers remain version 1. Database schema
-compatibility is handled by the full node; older databases should not be reused
-without an explicit migration.
+Protocol v2 replaces the unsafe difficulty-1 bootstrap chain. Full-node storage
+version 2 is required; version-1 databases must not be reused without an
+explicit migration.
 
 ## Architecture
 
