@@ -4,7 +4,7 @@ Consensus library for the Paqus proof-of-work blockchain. The crate provides
 canonical encoding, post-quantum signatures, transactions, blocks, ledger state,
 QCash UTXOs, fork choice, reorg handling, rewards, and dynamic genesis rules.
 
-Paqus currently uses protocol version 2. Consensus changes must remain
+Paqus currently uses protocol version 1. Consensus changes must remain
 deterministic across every node.
 
 ## Current Protocol
@@ -14,11 +14,11 @@ Chain:                     Paqus
 Chain ID:                  747
 Coin:                      XPQ
 Smallest unit:             paqus
-Decimals:                  5
+Decimals:                  6
 Protocol stage:            Mainnet
-Protocol version:          2
+Protocol version:          1
 Proof of work:             SHA3-512
-Difficulty:                per-block ASERT, starting at 25 bits
+Difficulty:                per-block ASERT, starting at 1 bit
 Target block time:         5 minutes
 Transaction confirmation: 5 blocks  (~25 minutes)
 Hard finality:             50 blocks (~4 hours 10 minutes)
@@ -29,9 +29,8 @@ Tail emission:             0.747 XPQ from height 525,600
 Genesis premine:           none
 ```
 
-Protocol v2 replaces the unsafe difficulty-1 bootstrap chain. Full-node storage
-version 2 is required; version-1 databases must not be reused without an
-explicit migration.
+Full-node storage version 2 is required. Databases created under a different
+protocol or genesis identity must not be reused without an explicit migration.
 
 ## Architecture
 
@@ -52,7 +51,7 @@ consensus objects.
 ## Monetary Units
 
 ```text
-1 XPQ = 100,000 paqus
+1 XPQ = 1,000,000 paqus
 ```
 
 Ordinary transfers and mining rewards use the account model. QCash bearer value
@@ -151,18 +150,18 @@ silently.
 
 ## Build and Test
 
-From the repository root:
+From the core repository root:
 
 ```bash
-cargo build -p paqus
-cargo test -p paqus
-cargo test -p paqus --doc
+cargo build
+cargo test
+cargo test --doc
 ```
 
 Run benchmarks:
 
 ```bash
-cargo bench -p paqus
+cargo bench
 ```
 
 Run decoder fuzz targets with nightly Rust:
