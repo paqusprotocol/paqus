@@ -10,6 +10,7 @@ use crate::ledger::{AccountStateProof, SparseStateTree};
 use crate::state::{Account, CreditSource, QCashUtxoSet};
 use crate::transaction::{
     QCashTransaction, QCashTransactionKind, SignedQCashTransaction, SignedTransaction,
+    TransactionError,
 };
 use std::collections::BTreeMap;
 use std::ops::{Deref, DerefMut};
@@ -154,7 +155,9 @@ impl Ledger {
     }
 
     pub fn confirmed_balance(&self, address: &Address) -> Option<Balance> {
-        self.balance(address)
+        let height = self.chain.tip_height().unwrap_or(crate::block::Height(0));
+        self.account(address)
+            .map(|account| account.available_balance_at(height))
     }
 
     pub fn total_supply(&self) -> Result<Amount, LedgerError> {
@@ -343,14 +346,31 @@ impl Ledger {
                 recipient,
                 metadata,
             } => {
+                let transaction_commitment = transaction.deposit_transaction_commitment().ok_or(
+                    LedgerError::InvalidTransaction(TransactionError::InvalidQCashMetadata),
+                )?;
                 let amount = if let Some(block_hash) = block_hash {
-                    self.qcash_utxos
-                        .apply_deposit_in_block(block_hash, height, metadata, *recipient)?
+                    self.qcash_utxos.apply_deposit_in_block(
+                        block_hash,
+                        height,
+                        metadata,
+                        *recipient,
+                        transaction_commitment,
+                    )?
                 } else {
-                    self.qcash_utxos
-                        .apply_deposit_proof(metadata, *recipient, height)?
+                    self.qcash_utxos.apply_deposit_proof(
+                        metadata,
+                        *recipient,
+                        height,
+                        transaction_commitment,
+                    )?
                 };
-                let credited = Amount(amount.0 - transaction.fee.0);
+                let credited = Amount(
+                    amount
+                        .0
+                        .checked_sub(transaction.fee.0)
+                        .ok_or(LedgerError::SupplyOverflow)?,
+                );
                 self.accounts
                     .get_mut(&transaction.signer)
                     .ok_or(LedgerError::AccountNotFound)?
@@ -388,7 +408,7 @@ impl Ledger {
     }
 
     pub fn apply_block(&mut self, block: Block) -> Result<(), LedgerError> {
-        let (mut staged, _) = self.staged_after_validated_block(&block)?;
+        let (mut staged, _) = self.staged_after_validated_block(&block, true)?;
         if !block.is_genesis() && block.state_root() == Hash([0; HASH_SIZE]) {
             return Err(LedgerError::InvalidStateRoot);
         }
@@ -409,7 +429,7 @@ impl Ledger {
     }
 
     pub fn state_root_after_block(&self, block: &Block) -> Result<StateRoot, LedgerError> {
-        self.staged_after_validated_block(block)
+        self.staged_after_validated_block(block, true)
             .map(|(_, state_root)| state_root)
     }
 

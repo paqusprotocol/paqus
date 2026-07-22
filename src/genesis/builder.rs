@@ -1,8 +1,11 @@
 use crate::block::Block;
+use crate::codec::{HashDomain, canonical_bytes, domain_hash};
+use crate::consensus::DIFFICULTY_ALGORITHM;
 use crate::crypto::Address;
 use crate::crypto::{HASH_SIZE, Hash};
 use crate::error::GenesisError;
 use crate::ledger::Ledger;
+use borsh::BorshSerialize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ChainParams {
@@ -31,9 +34,9 @@ pub const PAQUS_CHAIN: ChainParams = ChainParams {
     coin_name: "XPQ",
     unit_name: "paqus",
     protocol_stage: "Mainnet",
-    protocol_version: 2,
+    protocol_version: 1,
     pow_algorithm: "sha3-512",
-    difficulty_algorithm: "asert-bits-v2",
+    difficulty_algorithm: DIFFICULTY_ALGORITHM,
     network_magic: [0x58, 0x50, 0x51, 0x02],
     genesis: GenesisParams {
         miner_address: [0; crate::crypto::ADDRESS_SIZE],
@@ -47,8 +50,8 @@ pub const PAQUS_CHAIN: ChainParams = ChainParams {
 /// Frozen mainnet identity for the canonical encoding and block format.
 /// Never update this value without defining a new protocol version and chain identity.
 pub const FROZEN_GENESIS_HASH: [u8; HASH_SIZE] = [
-    64, 129, 62, 134, 193, 213, 37, 97, 244, 253, 76, 217, 157, 26, 57, 219, 40, 57, 244, 197, 149,
-    126, 64, 244, 82, 129, 210, 131, 227, 254, 31, 33,
+    114, 17, 46, 249, 73, 147, 179, 137, 71, 125, 74, 121, 54, 65, 95, 221, 244, 127, 138, 175,
+    218, 177, 249, 113, 30, 60, 214, 211, 78, 135, 18, 93,
 ];
 
 pub const CURRENT_CHAIN_PARAMS: ChainParams = PAQUS_CHAIN;
@@ -67,8 +70,13 @@ pub fn create_genesis_block(config: GenesisConfig) -> Block {
     create_genesis_block_for_chain(CURRENT_CHAIN_PARAMS, config)
 }
 
-pub fn create_genesis_block_for_chain(_params: ChainParams, config: GenesisConfig) -> Block {
-    Block::genesis(config.miner_address, config.timestamp, vec![])
+pub fn create_genesis_block_for_chain(params: ChainParams, config: GenesisConfig) -> Block {
+    Block::genesis_with_chain_commitment(
+        config.miner_address,
+        config.timestamp,
+        chain_identity_commitment(params),
+        vec![],
+    )
 }
 
 pub fn create_genesis_ledger(config: GenesisConfig) -> Result<Ledger, GenesisError> {
@@ -134,4 +142,32 @@ pub fn create_default_genesis_ledger(
         miner_address,
         timestamp,
     })
+}
+
+#[derive(BorshSerialize)]
+struct ChainIdentityCommitment {
+    chain_name: String,
+    chain_id: u16,
+    coin_name: String,
+    unit_name: String,
+    protocol_stage: String,
+    protocol_version: u8,
+    pow_algorithm: String,
+    difficulty_algorithm: String,
+    network_magic: [u8; 4],
+}
+
+pub fn chain_identity_commitment(params: ChainParams) -> Hash {
+    let identity = ChainIdentityCommitment {
+        chain_name: params.chain_name.to_owned(),
+        chain_id: params.chain_id,
+        coin_name: params.coin_name.to_owned(),
+        unit_name: params.unit_name.to_owned(),
+        protocol_stage: params.protocol_stage.to_owned(),
+        protocol_version: params.protocol_version,
+        pow_algorithm: params.pow_algorithm.to_owned(),
+        difficulty_algorithm: params.difficulty_algorithm.to_owned(),
+        network_magic: params.network_magic,
+    };
+    domain_hash(HashDomain::ChainParams, &canonical_bytes(&identity))
 }

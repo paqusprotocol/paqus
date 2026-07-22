@@ -1,6 +1,6 @@
 use crate::block::Block;
 use crate::block::{BlockHeight, Height};
-use crate::consensus::MIN_DIFFICULTY;
+use crate::consensus::{Consensus, DIFFICULTY_START, MIN_DIFFICULTY};
 use crate::crypto::{BlockHash, HASH_SIZE, Hash};
 use std::collections::BTreeMap;
 use std::ops::Add;
@@ -93,6 +93,11 @@ impl ForkChoice {
             }
             parent_node.cumulative_work
         };
+        let expected_difficulty = self.expected_difficulty_for(&block, parent)?;
+        Consensus::new(crate::consensus::ConsensusConfig::new(expected_difficulty))
+            .map_err(|_| ForkChoiceError::InvalidDifficulty)?
+            .validate_proof_of_work(&block)
+            .map_err(|_| ForkChoiceError::InvalidProofOfWork)?;
 
         let work = block_work(block.difficulty());
         let cumulative_work = parent_work.saturating_add(work);
@@ -229,12 +234,53 @@ impl ForkChoice {
             self.best_tip = Some(candidate_hash);
         }
     }
+
+    fn expected_difficulty_for(
+        &self,
+        block: &Block,
+        parent: BlockHash,
+    ) -> Result<u32, ForkChoiceError> {
+        if block.height().0 <= 1 {
+            return Ok(DIFFICULTY_START);
+        }
+        let parent_node = self
+            .nodes
+            .get(&parent)
+            .ok_or(ForkChoiceError::MissingParent)?;
+        let anchor = self
+            .ancestor_at_height(parent, Height(1))
+            .ok_or(ForkChoiceError::MissingParent)?;
+        Consensus::with_default_config()
+            .asert_difficulty(
+                anchor.block.difficulty(),
+                anchor.block.timestamp(),
+                anchor.height,
+                parent_node.block.timestamp(),
+                parent_node.height,
+            )
+            .map_err(|_| ForkChoiceError::InvalidDifficulty)
+    }
+
+    fn ancestor_at_height(&self, hash: BlockHash, height: Height) -> Option<&BlockNode> {
+        let mut current = hash;
+        loop {
+            let node = self.nodes.get(&current)?;
+            if node.height == height {
+                return Some(node);
+            }
+            if node.height < height || node.height.0 == 0 {
+                return None;
+            }
+            current = node.parent;
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ForkChoiceError {
     DuplicateBlock,
     InvalidDifficulty,
+    InvalidProofOfWork,
     InvalidHeight,
     MissingParent,
     UnknownFinalizedBlock,

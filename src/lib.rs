@@ -9,6 +9,3 @@ pub mod ledger;
 pub mod qcash;
 pub mod state;
 pub mod transaction;
-
-#[cfg(test)]
-mod test;

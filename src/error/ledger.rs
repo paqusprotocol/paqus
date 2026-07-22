@@ -1,4 +1,5 @@
 use crate::block::BlockError;
+use crate::error::ConsensusError;
 use crate::state::{QCashUtxoError, StateError};
 use crate::transaction::TransactionError;
 use std::error::Error;
@@ -9,6 +10,7 @@ pub enum LedgerError {
     AccountNotFound,
     AccountAlreadyExists,
     InvalidBlock(BlockError),
+    InvalidConsensus(ConsensusError),
     InvalidState(StateError),
     InvalidTransaction(TransactionError),
     InvalidSignature,
@@ -32,6 +34,7 @@ impl fmt::Display for LedgerError {
             LedgerError::AccountNotFound => f.write_str("account was not found"),
             LedgerError::AccountAlreadyExists => f.write_str("account already exists"),
             LedgerError::InvalidBlock(error) => write!(f, "invalid block: {error}"),
+            LedgerError::InvalidConsensus(error) => write!(f, "invalid consensus: {error}"),
             LedgerError::InvalidState(error) => write!(f, "invalid state transition: {error}"),
             LedgerError::InvalidTransaction(error) => write!(f, "invalid transaction: {error}"),
             LedgerError::InvalidSignature => f.write_str("transaction signature is invalid"),
@@ -49,7 +52,7 @@ impl fmt::Display for LedgerError {
                 f.write_str("block previous hash does not match ledger tip")
             }
             LedgerError::InvalidTimestamp => {
-                f.write_str("block timestamp is earlier than ledger tip")
+                f.write_str("block timestamp must be greater than ledger tip")
             }
             LedgerError::DuplicateBlock => f.write_str("block height already exists in ledger"),
             LedgerError::SupplyOverflow => {
@@ -72,6 +75,12 @@ impl From<QCashUtxoError> for LedgerError {
 }
 
 impl Error for LedgerError {}
+
+impl From<ConsensusError> for LedgerError {
+    fn from(error: ConsensusError) -> Self {
+        Self::InvalidConsensus(error)
+    }
+}
 
 impl From<BlockError> for LedgerError {
     fn from(error: BlockError) -> Self {

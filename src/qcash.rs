@@ -1,21 +1,20 @@
-//! Deterministic metadata primitives for representing XPQ as QCash coins.
-//!
-//! QCash is Paqus bearer cash authorized with post-quantum signatures. It is
-//! not a Chaumian blind-signature cash protocol.
-
 use crate::consensus::supply::{Amount, XPQ};
 use crate::crypto::{
     Address, HashDomain, PublicKey, Signature, TransactionHash, domain_hash, public_key_from_seed,
     sign_from_seed, verify,
 };
+use crate::genesis::CURRENT_CHAIN_PARAMS;
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 use std::error::Error;
 use std::fmt;
+use zeroize::Zeroize;
 
 pub const CASH_FILE_MAGIC: [u8; 8] = *b"XPQCASH1";
 pub const CASH_FILE_VERSION: u8 = 1;
 pub const MAX_CASH_FILE_SIZE: usize = 1024;
+pub const MAX_QCASH_WITHDRAW_OUTPUTS: usize = 256;
+pub const MAX_QCASH_DEPOSIT_INPUTS: usize = 4;
 
 /// Supported cash denominations, expressed in whole XPQ.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -74,23 +73,6 @@ impl BorshDeserialize for CashDenomination {
     }
 }
 
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    Hash,
-    Serialize,
-    Deserialize,
-    BorshSerialize,
-    BorshDeserialize,
-)]
-pub enum QCashOperation {
-    Deposit,
-    Withdraw,
-}
-
 /// A compact run of identical cash coins.
 #[derive(
     Debug,
@@ -107,15 +89,6 @@ pub enum QCashOperation {
 pub struct CashCoin {
     pub denomination: CashDenomination,
     pub count: u64,
-}
-
-/// Canonical QCash metadata. Coin runs must be unique and sorted largest first.
-#[derive(
-    Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, BorshSerialize, BorshDeserialize,
-)]
-pub struct QCashMetadata {
-    pub operation: QCashOperation,
-    pub coins: Vec<CashCoin>,
 }
 
 /// One consensus-visible output created by a withdraw transaction.
@@ -156,18 +129,7 @@ pub struct AutomaticWithdrawalPlan {
 }
 
 /// Portable bearer coin data stored by the wallet in a `.XPQ` file.
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    Hash,
-    Serialize,
-    Deserialize,
-    BorshSerialize,
-    BorshDeserialize,
-)]
+#[derive(Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct CashCoinFile {
     pub version: u8,
     /// Opaque state lookup key. The originating transaction hash is not stored
@@ -175,6 +137,23 @@ pub struct CashCoinFile {
     pub coin_id: [u8; 32],
     pub denomination: CashDenomination,
     pub opening_secret: [u8; 32],
+}
+
+impl Drop for CashCoinFile {
+    fn drop(&mut self) {
+        self.opening_secret.zeroize();
+    }
+}
+
+impl fmt::Debug for CashCoinFile {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CashCoinFile")
+            .field("version", &self.version)
+            .field("coin_id", &self.coin_id)
+            .field("denomination", &self.denomination)
+            .field("opening_secret", &"[REDACTED]")
+            .finish()
+    }
 }
 
 /// Public proof authorizing exactly one cash coin to be credited to one recipient.
@@ -214,6 +193,8 @@ pub enum QCashError {
     InvalidDepositAuthorization,
     InvalidCashFile,
     CashFileTooLarge,
+    TooManyWithdrawOutputs,
+    TooManyDepositInputs,
 }
 
 impl fmt::Display for QCashError {
@@ -256,6 +237,8 @@ impl fmt::Display for QCashError {
             }
             Self::InvalidCashFile => f.write_str("cash coin file is malformed or corrupted"),
             Self::CashFileTooLarge => f.write_str("cash coin file exceeds maximum size"),
+            Self::TooManyWithdrawOutputs => f.write_str("withdraw creates too many QCash outputs"),
+            Self::TooManyDepositInputs => f.write_str("cash deposit contains too many inputs"),
         }
     }
 }
@@ -272,13 +255,34 @@ fn deposit_authorization_bytes(
     coin_id: [u8; 32],
     denomination: CashDenomination,
     recipient: Address,
+    transaction_commitment: [u8; 32],
 ) -> Vec<u8> {
-    let payload = crate::codec::canonical_bytes(&(coin_id, denomination, recipient));
-    let mut bytes = Vec::with_capacity(32 + payload.len());
-    // Keep the version-1 domain bytes stable across the public QCash rename.
-    bytes.extend_from_slice(b"PAQUS_ECASH_DEPOSIT_AUTH_V1");
-    bytes.extend_from_slice(&payload);
-    bytes
+    #[derive(BorshSerialize)]
+    struct DepositAuthorizationPayload {
+        chain_id: u16,
+        protocol_version: u8,
+        operation: u8,
+        coin_id: [u8; 32],
+        denomination: CashDenomination,
+        recipient: Address,
+        transaction_commitment: [u8; 32],
+    }
+
+    let payload = DepositAuthorizationPayload {
+        chain_id: CURRENT_CHAIN_PARAMS.chain_id,
+        protocol_version: CURRENT_CHAIN_PARAMS.protocol_version,
+        operation: 1,
+        coin_id,
+        denomination,
+        recipient,
+        transaction_commitment,
+    };
+    domain_hash(
+        HashDomain::QCashDepositAuthorization,
+        &crate::codec::canonical_bytes(&payload),
+    )
+    .0
+    .to_vec()
 }
 
 /// Derives the opaque identifier shared by consensus state and the bearer file.
@@ -364,19 +368,21 @@ impl CashCoinFile {
         Ok(file)
     }
 
-    pub fn deposit_input(&self, recipient: Address) -> Result<DepositCashInput, QCashError> {
+    pub fn deposit_input_for_transaction(
+        &self,
+        recipient: Address,
+        transaction_commitment: [u8; 32],
+    ) -> Result<DepositCashInput, QCashError> {
         if self.version != CASH_FILE_VERSION {
             return Err(QCashError::UnsupportedCashFileVersion);
         }
-        let spend_public_key = public_key_from_seed(&self.opening_secret);
-        let message = deposit_authorization_bytes(self.coin_id, self.denomination, recipient);
-        Ok(DepositCashInput {
-            version: self.version,
-            coin_id: self.coin_id,
-            denomination: self.denomination,
-            spend_public_key,
-            authorization: sign_from_seed(&self.opening_secret, &message),
-        })
+        Ok(DepositCashInput::authorize(
+            self.coin_id,
+            self.denomination,
+            &self.opening_secret,
+            recipient,
+            transaction_commitment,
+        ))
     }
 
     pub fn commitment(&self) -> [u8; 32] {
@@ -391,20 +397,33 @@ impl DepositCashMetadata {
         Ok(metadata)
     }
 
-    pub fn new(files: &[CashCoinFile], recipient: Address) -> Result<Self, QCashError> {
+    pub fn new_for_transaction(
+        files: &[CashCoinFile],
+        recipient: Address,
+        transaction_commitment: [u8; 32],
+    ) -> Result<Self, QCashError> {
         let inputs = files
             .iter()
-            .map(|file| file.deposit_input(recipient))
+            .map(|file| file.deposit_input_for_transaction(recipient, transaction_commitment))
             .collect::<Result<Vec<_>, _>>()?;
         let metadata = Self { inputs };
         metadata.validate()?;
         Ok(metadata)
     }
 
-    pub fn validate_authorizations(&self, recipient: Address) -> Result<(), QCashError> {
+    pub fn validate_authorizations_for_transaction(
+        &self,
+        recipient: Address,
+        transaction_commitment: [u8; 32],
+    ) -> Result<(), QCashError> {
         self.validate()?;
         for input in &self.inputs {
-            let message = deposit_authorization_bytes(input.coin_id, input.denomination, recipient);
+            let message = deposit_authorization_bytes(
+                input.coin_id,
+                input.denomination,
+                recipient,
+                transaction_commitment,
+            );
             if !verify(&input.spend_public_key, &message, &input.authorization) {
                 return Err(QCashError::InvalidDepositAuthorization);
             }
@@ -416,6 +435,9 @@ impl DepositCashMetadata {
         use std::collections::BTreeSet;
         if self.inputs.is_empty() {
             return Err(QCashError::EmptyDepositInputs);
+        }
+        if self.inputs.len() > MAX_QCASH_DEPOSIT_INPUTS {
+            return Err(QCashError::TooManyDepositInputs);
         }
         let mut references = BTreeSet::new();
         for input in &self.inputs {
@@ -448,9 +470,11 @@ impl DepositCashInput {
         denomination: CashDenomination,
         opening_secret: &[u8; 32],
         recipient: Address,
+        transaction_commitment: [u8; 32],
     ) -> Self {
         let spend_public_key = public_key_from_seed(opening_secret);
-        let message = deposit_authorization_bytes(coin_id, denomination, recipient);
+        let message =
+            deposit_authorization_bytes(coin_id, denomination, recipient, transaction_commitment);
         Self {
             version: CASH_FILE_VERSION,
             coin_id,
@@ -478,6 +502,9 @@ impl WithdrawCashMetadata {
         let mut denominations = Vec::new();
         for run in runs {
             let count = usize::try_from(run.count).map_err(|_| QCashError::AmountOverflow)?;
+            if denominations.len().saturating_add(count) > MAX_QCASH_WITHDRAW_OUTPUTS {
+                return Err(QCashError::TooManyWithdrawOutputs);
+            }
             denominations.extend(std::iter::repeat_n(run.denomination, count));
         }
         Ok(AutomaticWithdrawalPlan {
@@ -504,6 +531,10 @@ impl WithdrawCashMetadata {
         })?;
         if coin_count != commitments.len() as u64 {
             return Err(QCashError::CommitmentCountMismatch);
+        }
+        let coin_count = usize::try_from(coin_count).map_err(|_| QCashError::AmountOverflow)?;
+        if coin_count > MAX_QCASH_WITHDRAW_OUTPUTS {
+            return Err(QCashError::TooManyWithdrawOutputs);
         }
 
         let mut outputs = Vec::with_capacity(commitments.len());
@@ -533,6 +564,9 @@ impl WithdrawCashMetadata {
         if denominations.len() != commitments.len() {
             return Err(QCashError::CommitmentCountMismatch);
         }
+        if denominations.len() > MAX_QCASH_WITHDRAW_OUTPUTS {
+            return Err(QCashError::TooManyWithdrawOutputs);
+        }
         let outputs = denominations
             .iter()
             .copied()
@@ -554,6 +588,9 @@ impl WithdrawCashMetadata {
 
         if self.outputs.is_empty() {
             return Err(QCashError::EmptyOutputs);
+        }
+        if self.outputs.len() > MAX_QCASH_WITHDRAW_OUTPUTS {
+            return Err(QCashError::TooManyWithdrawOutputs);
         }
         let mut commitments = BTreeSet::new();
         for (index, output) in self.outputs.iter().enumerate() {
@@ -590,58 +627,6 @@ impl WithdrawCashMetadata {
 }
 
 impl Error for QCashError {}
-
-impl QCashMetadata {
-    pub fn new(operation: QCashOperation, amount: Amount) -> Result<Self, QCashError> {
-        Ok(Self {
-            operation,
-            coins: format_cash_coins(amount)?,
-        })
-    }
-
-    pub fn deposit(amount: Amount) -> Result<Self, QCashError> {
-        Self::new(QCashOperation::Deposit, amount)
-    }
-
-    pub fn withdraw(amount: Amount) -> Result<Self, QCashError> {
-        Self::new(QCashOperation::Withdraw, amount)
-    }
-
-    pub fn validate(&self) -> Result<(), QCashError> {
-        if self.coins.is_empty() {
-            return Err(QCashError::EmptyCoins);
-        }
-
-        let mut previous = None;
-        for coin in &self.coins {
-            if coin.count == 0 {
-                return Err(QCashError::ZeroCoinCount);
-            }
-            if previous.is_some_and(|value| coin.denomination >= value) {
-                return Err(QCashError::NonCanonicalCoins);
-            }
-            previous = Some(coin.denomination);
-        }
-
-        self.amount().map(|_| ())
-    }
-
-    pub fn amount(&self) -> Result<Amount, QCashError> {
-        self.coins.iter().try_fold(Amount(0), |total, coin| {
-            let value = coin
-                .denomination
-                .amount()
-                .0
-                .checked_mul(coin.count)
-                .ok_or(QCashError::AmountOverflow)?;
-            total
-                .0
-                .checked_add(value)
-                .map(Amount)
-                .ok_or(QCashError::AmountOverflow)
-        })
-    }
-}
 
 /// Formats a whole-XPQ amount using the fewest supported coins.
 pub fn format_cash_coins(amount: Amount) -> Result<Vec<CashCoin>, QCashError> {

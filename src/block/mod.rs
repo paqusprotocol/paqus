@@ -11,8 +11,8 @@ use crate::transaction::{
 };
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::io::{Error as IoError, ErrorKind, Read, Write};
-use std::thread;
 
 #[derive(
     BorshSerialize,
@@ -63,6 +63,7 @@ pub struct BlockHeader {
     pub merkle_root: MerkleHash,
     pub witness_root: WitnessMerkleHash,
     pub state_root: StateRoot,
+    pub chain_commitment: Hash,
     pub miner_address: Address,
     pub difficulty: u32,
     pub timestamp: u64,
@@ -77,6 +78,7 @@ impl BlockHeader {
         merkle_root: MerkleHash,
         witness_root: WitnessMerkleHash,
         state_root: StateRoot,
+        chain_commitment: Hash,
         miner_address: Address,
         difficulty: u32,
         timestamp: u64,
@@ -89,6 +91,7 @@ impl BlockHeader {
             merkle_root,
             witness_root,
             state_root,
+            chain_commitment,
             miner_address,
             difficulty,
             timestamp,
@@ -138,10 +141,17 @@ impl BorshDeserialize for Block {
         let genesis_allocations = Vec::<GenesisAllocation>::deserialize_reader(reader)?;
         let coinbase = Option::<CoinbaseTransaction>::deserialize_reader(reader)?;
 
-        let transactions = Vec::<Transaction>::deserialize_reader(reader)?;
-        let qcash_transactions = Vec::<QCashTransaction>::deserialize_reader(reader)?;
+        let transactions = deserialize_limited_vec::<Transaction, _>(reader, MAX_BLOCK_TXS)?;
+        let qcash_transactions =
+            deserialize_limited_vec::<QCashTransaction, _>(reader, MAX_BLOCK_TXS)?;
+        if transactions.len().saturating_add(qcash_transactions.len()) > MAX_BLOCK_TXS {
+            return Err(IoError::new(
+                ErrorKind::InvalidData,
+                "too many block transactions",
+            ));
+        }
 
-        let keys = Vec::<PublicKey>::deserialize_reader(reader)?;
+        let keys = deserialize_limited_vec::<PublicKey, _>(reader, MAX_BLOCK_TXS)?;
         if keys
             .iter()
             .enumerate()
@@ -152,8 +162,8 @@ impl BorshDeserialize for Block {
                 "duplicate witness dictionary key",
             ));
         }
-        let transaction_witnesses = decode_indexed_witnesses(reader, &keys)?;
-        let qcash_witnesses = decode_indexed_witnesses(reader, &keys)?;
+        let transaction_witnesses = decode_indexed_witnesses(reader, &keys, transactions.len())?;
+        let qcash_witnesses = decode_indexed_witnesses(reader, &keys, qcash_transactions.len())?;
 
         let block = Self {
             header,
@@ -243,8 +253,9 @@ where
 fn decode_indexed_witnesses<R: Read>(
     reader: &mut R,
     keys: &[PublicKey],
+    limit: usize,
 ) -> std::io::Result<Vec<Witness>> {
-    Vec::<IndexedWitness>::deserialize_reader(reader)?
+    deserialize_limited_vec::<IndexedWitness, _>(reader, limit)?
         .into_iter()
         .map(|indexed| {
             let public_key = keys
@@ -271,6 +282,26 @@ where
         project(value).serialize(writer)?;
     }
     Ok(())
+}
+
+fn deserialize_limited_vec<T, R>(reader: &mut R, limit: usize) -> std::io::Result<Vec<T>>
+where
+    T: BorshDeserialize,
+    R: Read,
+{
+    let length = u32::deserialize_reader(reader)? as usize;
+    if length > limit {
+        return Err(IoError::new(
+            ErrorKind::InvalidData,
+            "block section length exceeds limit",
+        ));
+    }
+
+    let mut values = Vec::with_capacity(length);
+    for _ in 0..length {
+        values.push(T::deserialize_reader(reader)?);
+    }
+    Ok(values)
 }
 
 fn zip_witnesses<T, W, S, F>(
@@ -412,13 +443,28 @@ impl Block {
         timestamp: u64,
         allocations: Vec<GenesisAllocation>,
     ) -> Self {
-        Self::with_parts(
+        Self::genesis_with_chain_commitment(
+            miner_address,
+            timestamp,
+            Hash([0; HASH_SIZE]),
+            allocations,
+        )
+    }
+
+    pub fn genesis_with_chain_commitment(
+        miner_address: Address,
+        timestamp: u64,
+        chain_commitment: Hash,
+        allocations: Vec<GenesisAllocation>,
+    ) -> Self {
+        Self::with_parts_and_chain_commitment(
             Height(0),
             PreviousHash::ZERO,
             miner_address,
             DIFFICULTY_START,
             timestamp,
             Nonce(0),
+            chain_commitment,
             allocations,
             None,
             vec![],
@@ -464,6 +510,35 @@ impl Block {
         transactions: Vec<SignedTransaction>,
         qcash_transactions: Vec<SignedQCashTransaction>,
     ) -> Self {
+        Self::with_parts_and_chain_commitment(
+            height,
+            previous_hash,
+            miner_address,
+            difficulty,
+            timestamp,
+            nonce,
+            Hash([0; HASH_SIZE]),
+            genesis_allocations,
+            coinbase,
+            transactions,
+            qcash_transactions,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn with_parts_and_chain_commitment(
+        height: BlockHeight,
+        previous_hash: impl Into<PreviousHash>,
+        miner_address: Address,
+        difficulty: u32,
+        timestamp: u64,
+        nonce: BlockNonce,
+        chain_commitment: Hash,
+        genesis_allocations: Vec<GenesisAllocation>,
+        coinbase: Option<CoinbaseTransaction>,
+        transactions: Vec<SignedTransaction>,
+        qcash_transactions: Vec<SignedQCashTransaction>,
+    ) -> Self {
         let previous_hash = previous_hash.into();
         let merkle_root = calculate_merkle_root(
             &genesis_allocations,
@@ -480,6 +555,7 @@ impl Block {
                 merkle_root,
                 witness_root,
                 state_root,
+                chain_commitment,
                 miner_address,
                 difficulty,
                 timestamp,
@@ -550,6 +626,9 @@ impl Block {
 
         if self.transaction_count() > MAX_BLOCK_TXS {
             return Err(BlockError::TooManyTransactions);
+        }
+        if has_duplicate_transactions(&self.transactions, &self.qcash_transactions) {
+            return Err(BlockError::DuplicateTransaction);
         }
 
         self.checked_total_fees()?;
@@ -730,7 +809,11 @@ fn calculate_merkle_root(
     transactions: &[SignedTransaction],
     qcash_transactions: &[SignedQCashTransaction],
 ) -> MerkleHash {
-    if genesis_allocations.is_empty() && coinbase.is_none() && transactions.is_empty() {
+    if genesis_allocations.is_empty()
+        && coinbase.is_none()
+        && transactions.is_empty()
+        && qcash_transactions.is_empty()
+    {
         return MerkleHash::ZERO;
     }
 
@@ -747,23 +830,25 @@ fn calculate_merkle_root(
         .collect();
 
     while hashes.len() > 1 {
-        if hashes.len() % 2 == 1 {
-            let last = *hashes.last().expect("hashes is not empty");
-            hashes.push(last);
-        }
-
-        hashes = hashes
-            .chunks(2)
-            .map(|pair| {
-                let mut bytes = Vec::with_capacity(HASH_SIZE * 2);
-                bytes.extend_from_slice(&pair[0].0);
-                bytes.extend_from_slice(&pair[1].0);
-                domain_hash(HashDomain::MerkleNode, &bytes)
-            })
-            .collect();
+        hashes = merkle_parent_level(hashes, HashDomain::MerkleNode);
     }
 
     MerkleHash(hashes[0].0)
+}
+
+fn merkle_parent_level(hashes: Vec<Hash>, domain: HashDomain) -> Vec<Hash> {
+    let mut parents = Vec::with_capacity(hashes.len().div_ceil(2));
+    let mut pairs = hashes.chunks_exact(2);
+    for pair in &mut pairs {
+        let mut bytes = Vec::with_capacity(HASH_SIZE * 2);
+        bytes.extend_from_slice(&pair[0].0);
+        bytes.extend_from_slice(&pair[1].0);
+        parents.push(domain_hash(domain, &bytes));
+    }
+    if let [last] = pairs.remainder() {
+        parents.push(*last);
+    }
+    parents
 }
 
 fn calculate_witness_merkle_root(
@@ -781,22 +866,23 @@ fn calculate_witness_merkle_root(
     }
 
     while hashes.len() > 1 {
-        if hashes.len() % 2 == 1 {
-            let last = *hashes.last().expect("hashes is not empty");
-            hashes.push(last);
-        }
-        hashes = hashes
-            .chunks(2)
-            .map(|pair| {
-                let mut bytes = Vec::with_capacity(HASH_SIZE * 2);
-                bytes.extend_from_slice(&pair[0].0);
-                bytes.extend_from_slice(&pair[1].0);
-                domain_hash(HashDomain::WitnessMerkleNode, &bytes)
-            })
-            .collect();
+        hashes = merkle_parent_level(hashes, HashDomain::WitnessMerkleNode);
     }
 
     WitnessMerkleHash(hashes[0].0)
+}
+
+fn has_duplicate_transactions(
+    transactions: &[SignedTransaction],
+    qcash_transactions: &[SignedQCashTransaction],
+) -> bool {
+    let mut seen =
+        HashSet::with_capacity(transactions.len().saturating_add(qcash_transactions.len()));
+    transactions
+        .iter()
+        .map(|tx| tx.hash().as_hash())
+        .chain(qcash_transactions.iter().map(|tx| tx.hash().as_hash()))
+        .any(|hash| !seen.insert(hash))
 }
 
 fn checked_fees(
@@ -816,35 +902,7 @@ fn signed_transactions_are_valid_for_height(
     transactions: &[SignedTransaction],
     height: BlockHeight,
 ) -> bool {
-    if transactions.len() < 2 {
-        return transactions
-            .iter()
-            .all(|tx| tx.validate_signed_for_height(height).is_ok());
-    }
-
-    let workers = thread::available_parallelism()
-        .map(|parallelism| parallelism.get())
-        .unwrap_or(1)
-        .min(transactions.len());
-    if workers <= 1 {
-        return transactions
-            .iter()
-            .all(|tx| tx.validate_signed_for_height(height).is_ok());
-    }
-
-    let chunk_size = transactions.len().div_ceil(workers);
-    thread::scope(|scope| {
-        let mut handles = Vec::new();
-        for chunk in transactions.chunks(chunk_size) {
-            handles.push(scope.spawn(move || {
-                chunk
-                    .iter()
-                    .all(|tx| tx.validate_signed_for_height(height).is_ok())
-            }));
-        }
-
-        handles
-            .into_iter()
-            .all(|handle| handle.join().unwrap_or(false))
-    })
+    transactions
+        .iter()
+        .all(|tx| tx.validate_signed_for_height(height).is_ok())
 }

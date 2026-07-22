@@ -29,7 +29,9 @@ impl fmt::Display for ConsensusError {
             ConsensusError::InvalidPreviousHash => {
                 f.write_str("block previous hash does not match tip")
             }
-            ConsensusError::InvalidTimestamp => f.write_str("block timestamp is earlier than tip"),
+            ConsensusError::InvalidTimestamp => {
+                f.write_str("block timestamp must be greater than tip")
+            }
             ConsensusError::InsufficientProofOfWork => {
                 f.write_str("block hash does not satisfy proof-of-work difficulty")
             }

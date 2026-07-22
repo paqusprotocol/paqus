@@ -65,7 +65,7 @@ impl Chain {
                 }
 
                 if block.timestamp()
-                    < self
+                    <= self
                         .timestamp_at(tip_height)
                         .ok_or(LedgerError::InvalidParent)?
                 {

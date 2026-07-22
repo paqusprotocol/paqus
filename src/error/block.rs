@@ -11,6 +11,7 @@ pub enum BlockError {
     BlockTooLarge,
     BlockTooHeavy,
     InvalidTransaction,
+    DuplicateTransaction,
     InvalidCoinbase,
     InvalidGenesisAllocation,
     InvalidMerkleRoot,
@@ -36,6 +37,9 @@ impl fmt::Display for BlockError {
             BlockError::BlockTooLarge => f.write_str("block serialized size exceeds limit"),
             BlockError::BlockTooHeavy => f.write_str("block witness weight exceeds limit"),
             BlockError::InvalidTransaction => f.write_str("block contains an invalid transaction"),
+            BlockError::DuplicateTransaction => {
+                f.write_str("block contains a duplicate transaction")
+            }
             BlockError::InvalidCoinbase => f.write_str("block coinbase is invalid"),
             BlockError::InvalidGenesisAllocation => {
                 f.write_str("block genesis allocation is invalid")

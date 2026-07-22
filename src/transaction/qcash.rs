@@ -1,4 +1,4 @@
-use super::{AccountNonce, ValidityWindow, Witness};
+use super::{AccountNonce, ValidityWindow, Witness, chain_bound_signing_bytes};
 use crate::block::BlockHeight;
 use crate::codec::canonical_bytes;
 use crate::consensus::supply::Amount;
@@ -7,7 +7,7 @@ use crate::crypto::{
     domain_hash, verify,
 };
 use crate::error::TransactionError;
-use crate::qcash::{DepositCashMetadata, WithdrawCashMetadata};
+use crate::qcash::{CashCoinFile, DepositCashMetadata, QCashError, WithdrawCashMetadata};
 use borsh::{BorshDeserialize, BorshSerialize};
 
 pub const QCASH_TRANSACTION_VERSION: u8 = 1;
@@ -38,6 +38,26 @@ pub struct QCashTransaction {
     pub timestamp: u64,
     pub kind: QCashTransactionKind,
     pub validity: ValidityWindow,
+}
+
+#[derive(BorshSerialize)]
+struct DepositTransactionCommitmentInput {
+    version: u8,
+    coin_id: [u8; 32],
+    denomination: crate::qcash::CashDenomination,
+    spend_public_key: PublicKey,
+}
+
+#[derive(BorshSerialize)]
+struct DepositTransactionCommitmentPayload {
+    version: u8,
+    signer: Address,
+    recipient: Address,
+    fee: Amount,
+    nonce: AccountNonce,
+    timestamp: u64,
+    validity: ValidityWindow,
+    inputs: Vec<DepositTransactionCommitmentInput>,
 }
 
 impl QCashTransaction {
@@ -80,6 +100,46 @@ impl QCashTransaction {
         }
     }
 
+    pub fn deposit_from_files(
+        signer: Address,
+        recipient: Address,
+        fee: Amount,
+        nonce: AccountNonce,
+        files: &[CashCoinFile],
+    ) -> Result<Self, QCashError> {
+        Self::deposit_from_files_at(signer, recipient, fee, nonce, 0, files)
+    }
+
+    pub fn deposit_from_files_at(
+        signer: Address,
+        recipient: Address,
+        fee: Amount,
+        nonce: AccountNonce,
+        timestamp: u64,
+        files: &[CashCoinFile],
+    ) -> Result<Self, QCashError> {
+        let placeholder_inputs = files
+            .iter()
+            .map(|file| file.deposit_input_for_transaction(recipient, [0; 32]))
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut transaction = Self::deposit(
+            signer,
+            recipient,
+            fee,
+            nonce,
+            DepositCashMetadata::from_inputs(placeholder_inputs)?,
+        )
+        .with_timestamp(timestamp);
+        let commitment = transaction
+            .deposit_transaction_commitment()
+            .expect("deposit transaction should have a deposit commitment");
+        transaction.kind = QCashTransactionKind::DepositCash {
+            recipient,
+            metadata: DepositCashMetadata::new_for_transaction(files, recipient, commitment)?,
+        };
+        Ok(transaction)
+    }
+
     pub fn with_timestamp(mut self, timestamp: u64) -> Self {
         self.timestamp = timestamp;
         self
@@ -107,7 +167,11 @@ impl QCashTransaction {
                 metadata,
             } => {
                 metadata
-                    .validate_authorizations(*recipient)
+                    .validate_authorizations_for_transaction(
+                        *recipient,
+                        self.deposit_transaction_commitment()
+                            .ok_or(TransactionError::InvalidQCashMetadata)?,
+                    )
                     .map_err(|_| TransactionError::InvalidQCashMetadata)?;
                 let amount = metadata
                     .amount()
@@ -142,15 +206,47 @@ impl QCashTransaction {
     }
 
     pub fn signing_bytes(&self) -> Vec<u8> {
-        let payload = self.to_bytes();
-        let mut bytes = Vec::with_capacity(QCASH_SIGNATURE_DOMAIN.len() + payload.len());
-        bytes.extend_from_slice(QCASH_SIGNATURE_DOMAIN);
-        bytes.extend_from_slice(&payload);
-        bytes
+        chain_bound_signing_bytes(QCASH_SIGNATURE_DOMAIN, self.to_bytes())
     }
 
     pub fn hash(&self) -> TransactionHash {
         TransactionHash(domain_hash(HashDomain::Transaction, &self.to_bytes()).0)
+    }
+
+    pub fn deposit_transaction_commitment(&self) -> Option<[u8; 32]> {
+        let QCashTransactionKind::DepositCash {
+            recipient,
+            metadata,
+        } = &self.kind
+        else {
+            return None;
+        };
+        let payload = DepositTransactionCommitmentPayload {
+            version: self.version,
+            signer: self.signer,
+            recipient: *recipient,
+            fee: self.fee,
+            nonce: self.nonce,
+            timestamp: self.timestamp,
+            validity: self.validity,
+            inputs: metadata
+                .inputs
+                .iter()
+                .map(|input| DepositTransactionCommitmentInput {
+                    version: input.version,
+                    coin_id: input.coin_id,
+                    denomination: input.denomination,
+                    spend_public_key: input.spend_public_key,
+                })
+                .collect(),
+        };
+        Some(
+            domain_hash(
+                HashDomain::QCashDepositTransaction,
+                &canonical_bytes(&payload),
+            )
+            .0,
+        )
     }
 }
 
@@ -202,10 +298,7 @@ impl SignedQCashTransaction {
     }
 
     pub fn wtxid(&self) -> crate::crypto::WitnessTransactionHash {
-        crate::codec::family_witness_transaction_hash(
-            super::TransactionFamily::QCash,
-            &self.to_bytes(),
-        )
+        super::SignedProtocolTransaction::QCash(self.clone()).wtxid()
     }
 
     pub fn to_bytes(&self) -> Vec<u8> {

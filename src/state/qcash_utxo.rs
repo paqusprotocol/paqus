@@ -1,17 +1,17 @@
 //! Consensus UTXO set for QCash bearer outputs.
 
-use crate::block::BlockHeight;
+use crate::block::{BlockHeight, Height};
 use crate::consensus::supply::Amount;
 use crate::crypto::{
     Address, BlockHash, HASH_SIZE, Hash, HashDomain, TransactionHash, domain_hash,
 };
 use crate::qcash::{
-    CashDenomination, DepositCashMetadata, QCashMetadata, QCashOperation, QCashOutput,
-    WithdrawCashMetadata, cash_coin_id_bytes, cash_spend_public_key_commitment,
+    CashDenomination, DepositCashMetadata, QCashOutput, WithdrawCashMetadata, cash_coin_id_bytes,
+    cash_spend_public_key_commitment,
 };
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt;
 
@@ -56,22 +56,19 @@ impl CashCoinId {
         Self(cash_coin_id_bytes(withdraw_tx_hash, output))
     }
 
-    /// Nine uppercase hexadecimal characters for a human-facing file name.
+    /// Sixteen uppercase hexadecimal characters for a human-facing file name.
     pub fn short_id(&self) -> String {
         const HEX: &[u8; 16] = b"0123456789ABCDEF";
-        let mut value = String::with_capacity(9);
-        for byte in self.0.iter().take(5) {
+        let mut value = String::with_capacity(16);
+        for byte in self.0.iter().take(8) {
             value.push(HEX[(byte >> 4) as usize] as char);
-            if value.len() == 9 {
-                break;
-            }
             value.push(HEX[(byte & 0x0f) as usize] as char);
         }
         value
     }
 
     pub fn file_name(&self, denomination: CashDenomination) -> String {
-        format!("{}+{}.XPQ", denomination.xpq(), self.short_id())
+        format!("{}_{}.XPQ", denomination.xpq(), self.short_id())
     }
 }
 
@@ -102,8 +99,17 @@ pub struct QCashUtxo {
     pub withdrawer: Address,
     pub denomination: CashDenomination,
     pub commitment: [u8; 32],
-    pub status: QCashUtxoStatus,
     pub issued_height: BlockHeight,
+}
+
+impl QCashUtxo {
+    pub fn status_at(&self, height: BlockHeight) -> QCashUtxoStatus {
+        if is_spendable_at(self, height) {
+            QCashUtxoStatus::Spendable
+        } else {
+            QCashUtxoStatus::Pending
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
@@ -120,6 +126,7 @@ pub struct QCashBlockJournal {
 pub struct QCashUtxoSet {
     coins: BTreeMap<CashCoinId, QCashUtxo>,
     journals: BTreeMap<BlockHash, QCashBlockJournal>,
+    active_journal_tip: Option<BlockHash>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -134,6 +141,7 @@ pub enum QCashUtxoError {
     InvalidCoinProof,
     CoinNotMature,
     MissingBlockJournal,
+    NonTipRollback,
 }
 
 impl fmt::Display for QCashUtxoError {
@@ -153,6 +161,7 @@ impl fmt::Display for QCashUtxoError {
             Self::InvalidCoinProof => f.write_str("cash coin proof does not match issued output"),
             Self::CoinNotMature => f.write_str("cash coin has not reached QCash finality maturity"),
             Self::MissingBlockJournal => f.write_str("QCash block journal was not found"),
+            Self::NonTipRollback => f.write_str("QCash rollback must disconnect the journal tip"),
         }
     }
 }
@@ -178,17 +187,20 @@ impl QCashUtxoSet {
 
     /// Consensus commitment excluding local rollback journals and event counters.
     pub fn consensus_root(&self) -> Hash {
-        let records: Vec<_> = self.coins.values().collect();
         domain_hash(
             HashDomain::QCashState,
-            &crate::codec::canonical_bytes(&records),
+            &crate::codec::canonical_bytes(&self.coins),
         )
     }
 
-    pub fn spendable_utxos(&self) -> impl Iterator<Item = &QCashUtxo> {
+    pub fn spendable_utxos_at(&self, height: BlockHeight) -> impl Iterator<Item = &QCashUtxo> {
         self.coins
             .values()
-            .filter(|coin| coin.status == QCashUtxoStatus::Spendable)
+            .filter(move |coin| is_spendable_at(coin, height))
+    }
+
+    pub fn spendable_utxos(&self) -> impl Iterator<Item = &QCashUtxo> {
+        self.spendable_utxos_at(Height(u64::MAX))
     }
 
     pub fn utxos(&self) -> impl Iterator<Item = &QCashUtxo> {
@@ -205,6 +217,17 @@ impl QCashUtxoSet {
         })
     }
 
+    pub fn spendable_balance_at(&self, height: BlockHeight) -> Result<Amount, QCashUtxoError> {
+        self.spendable_utxos_at(height)
+            .try_fold(Amount(0), |total, coin| {
+                total
+                    .0
+                    .checked_add(coin.denomination.amount().0)
+                    .map(Amount)
+                    .ok_or(QCashUtxoError::StateOverflow)
+            })
+    }
+
     pub fn total_value(&self) -> Result<Amount, QCashUtxoError> {
         self.utxos().try_fold(Amount(0), |total, coin| {
             total
@@ -215,19 +238,10 @@ impl QCashUtxoSet {
         })
     }
 
-    /// Makes finalized withdrawal outputs spendable at the active chain tip.
+    /// Maturity is derived from active height. Kept as a no-op for callers that
+    /// previously advanced cached wallet/RPC status through this API.
     pub fn finalize_at(&mut self, tip_height: BlockHeight) {
-        for coin in self.coins.values_mut() {
-            if coin.status == QCashUtxoStatus::Pending
-                && tip_height.0
-                    >= coin
-                        .issued_height
-                        .0
-                        .saturating_add(crate::ledger::QCASH_WITHDRAW_MATURITY as u64)
-            {
-                coin.status = QCashUtxoStatus::Spendable;
-            }
-        }
+        let _ = tip_height;
     }
 
     /// Issues and stores every coin represented by withdraw metadata.
@@ -266,7 +280,6 @@ impl QCashUtxoSet {
                     withdrawer,
                     denomination: output.denomination,
                     commitment: output.commitment,
-                    status: QCashUtxoStatus::Pending,
                     issued_height: height,
                 },
             );
@@ -275,78 +288,21 @@ impl QCashUtxoSet {
         Ok(ids)
     }
 
-    /// Redeems issued coin IDs after matching them against deposit metadata.
-    pub fn apply_deposit(
-        &mut self,
-        metadata: &QCashMetadata,
-        coin_ids: &[CashCoinId],
-    ) -> Result<(), QCashUtxoError> {
-        metadata
-            .validate()
-            .map_err(|_| QCashUtxoError::InvalidMetadata)?;
-        if metadata.operation != QCashOperation::Deposit {
-            return Err(QCashUtxoError::WrongOperation);
-        }
-        let unique: BTreeSet<_> = coin_ids.iter().copied().collect();
-        if unique.len() != coin_ids.len() {
-            return Err(QCashUtxoError::DuplicateCoin);
-        }
-
-        let mut actual = BTreeMap::<CashDenomination, u64>::new();
-        for id in coin_ids {
-            let coin = self.coins.get(id).ok_or(QCashUtxoError::UnknownCoin)?;
-            if coin.status != QCashUtxoStatus::Spendable {
-                return Err(QCashUtxoError::CoinNotMature);
-            }
-            *actual.entry(coin.denomination).or_default() += 1;
-        }
-        let expected: BTreeMap<_, _> = metadata
-            .coins
-            .iter()
-            .map(|run| (run.denomination, run.count))
-            .collect();
-        if actual != expected {
-            return Err(QCashUtxoError::DenominationMismatch);
-        }
-
-        for id in coin_ids {
-            self.coins.remove(id).expect("UTXOs were validated above");
-        }
-        Ok(())
-    }
-
     /// Verifies bearer secrets and atomically redeems explicit deposit inputs.
     pub fn apply_deposit_proof(
         &mut self,
         metadata: &DepositCashMetadata,
         recipient: Address,
         height: BlockHeight,
+        transaction_commitment: [u8; 32],
     ) -> Result<Amount, QCashUtxoError> {
         metadata
-            .validate_authorizations(recipient)
+            .validate_authorizations_for_transaction(recipient, transaction_commitment)
             .map_err(|_| QCashUtxoError::InvalidMetadata)?;
-        let mut ids = Vec::with_capacity(metadata.inputs.len());
-        for input in &metadata.inputs {
-            let id = CashCoinId(input.coin_id);
-            let coin = self.coins.get(&id).ok_or(QCashUtxoError::UnknownCoin)?;
-            if coin.status != QCashUtxoStatus::Spendable {
-                return Err(QCashUtxoError::CoinNotMature);
-            }
-            if coin.denomination != input.denomination
-                || coin.commitment != cash_spend_public_key_commitment(&input.spend_public_key)
-            {
-                return Err(QCashUtxoError::InvalidCoinProof);
-            }
-            ids.push(id);
-        }
-
-        let amount = metadata
-            .amount()
-            .map_err(|_| QCashUtxoError::InvalidMetadata)?;
+        let (ids, amount) = self.validate_deposit_proof(metadata, height)?;
         for id in ids {
             self.coins.remove(&id).expect("UTXOs were validated above");
         }
-        let _ = height;
         Ok(amount)
     }
 
@@ -358,9 +314,10 @@ impl QCashUtxoSet {
         withdraw_tx_hash: TransactionHash,
         metadata: &WithdrawCashMetadata,
     ) -> Result<Vec<CashCoinId>, QCashUtxoError> {
-        let mut staged = self.clone();
-        let ids = staged.apply_withdraw(withdrawer, withdraw_tx_hash, metadata, height)?;
-        let journal = staged
+        metadata
+            .validate()
+            .map_err(|_| QCashUtxoError::InvalidMetadata)?;
+        let journal = self
             .journals
             .entry(block_hash)
             .or_insert_with(|| QCashBlockJournal {
@@ -372,8 +329,13 @@ impl QCashUtxoSet {
         if journal.block_height != height {
             return Err(QCashUtxoError::InvalidMetadata);
         }
+        let ids = self.apply_withdraw(withdrawer, withdraw_tx_hash, metadata, height)?;
+        let journal = self
+            .journals
+            .get_mut(&block_hash)
+            .expect("journal was created above");
         journal.issued_coin_ids.extend(ids.iter().copied());
-        *self = staged;
+        self.active_journal_tip = Some(block_hash);
         Ok(ids)
     }
 
@@ -383,21 +345,22 @@ impl QCashUtxoSet {
         height: BlockHeight,
         metadata: &DepositCashMetadata,
         recipient: Address,
+        transaction_commitment: [u8; 32],
     ) -> Result<Amount, QCashUtxoError> {
-        let mut staged = self.clone();
-        let mut previous = Vec::with_capacity(metadata.inputs.len());
-        for input in &metadata.inputs {
-            let id = CashCoinId(input.coin_id);
-            previous.push(
-                staged
-                    .coins
-                    .get(&id)
+        metadata
+            .validate_authorizations_for_transaction(recipient, transaction_commitment)
+            .map_err(|_| QCashUtxoError::InvalidMetadata)?;
+        let (ids, amount) = self.validate_deposit_proof(metadata, height)?;
+        let previous = ids
+            .iter()
+            .map(|id| {
+                self.coins
+                    .get(id)
                     .cloned()
-                    .ok_or(QCashUtxoError::UnknownCoin)?,
-            );
-        }
-        let amount = staged.apply_deposit_proof(metadata, recipient, height)?;
-        let journal = staged
+                    .ok_or(QCashUtxoError::UnknownCoin)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let journal = self
             .journals
             .entry(block_hash)
             .or_insert_with(|| QCashBlockJournal {
@@ -409,13 +372,23 @@ impl QCashUtxoSet {
         if journal.block_height != height {
             return Err(QCashUtxoError::InvalidMetadata);
         }
+        for id in &ids {
+            self.coins.remove(id).expect("UTXOs were validated above");
+        }
+        let journal = self
+            .journals
+            .get_mut(&block_hash)
+            .expect("journal was created above");
         journal.spent_utxos.extend(previous);
-        *self = staged;
+        self.active_journal_tip = Some(block_hash);
         Ok(amount)
     }
 
     /// Reverses all QCash changes made by a disconnected block.
     pub fn rollback_block(&mut self, block_hash: BlockHash) -> Result<(), QCashUtxoError> {
+        if self.active_journal_tip != Some(block_hash) {
+            return Err(QCashUtxoError::NonTipRollback);
+        }
         let journal = self
             .journals
             .remove(&block_hash)
@@ -426,6 +399,63 @@ impl QCashUtxoSet {
         for id in journal.issued_coin_ids {
             self.coins.remove(&id);
         }
+        self.active_journal_tip = None;
         Ok(())
     }
+
+    pub fn set_active_journal_tip(
+        &mut self,
+        block_hash: Option<BlockHash>,
+    ) -> Result<(), QCashUtxoError> {
+        if let Some(hash) = block_hash
+            && !self.journals.contains_key(&hash)
+        {
+            return Err(QCashUtxoError::MissingBlockJournal);
+        }
+        self.active_journal_tip = block_hash;
+        Ok(())
+    }
+
+    pub fn prune_journals(&mut self, finalized_height: BlockHeight) {
+        self.journals
+            .retain(|_, journal| journal.block_height > finalized_height);
+        if self
+            .active_journal_tip
+            .is_some_and(|tip| !self.journals.contains_key(&tip))
+        {
+            self.active_journal_tip = None;
+        }
+    }
+
+    fn validate_deposit_proof(
+        &self,
+        metadata: &DepositCashMetadata,
+        height: BlockHeight,
+    ) -> Result<(Vec<CashCoinId>, Amount), QCashUtxoError> {
+        let mut ids = Vec::with_capacity(metadata.inputs.len());
+        for input in &metadata.inputs {
+            let id = CashCoinId(input.coin_id);
+            let coin = self.coins.get(&id).ok_or(QCashUtxoError::UnknownCoin)?;
+            if !is_spendable_at(coin, height) {
+                return Err(QCashUtxoError::CoinNotMature);
+            }
+            if coin.denomination != input.denomination
+                || coin.commitment != cash_spend_public_key_commitment(&input.spend_public_key)
+            {
+                return Err(QCashUtxoError::InvalidCoinProof);
+            }
+            ids.push(id);
+        }
+        let amount = metadata
+            .amount()
+            .map_err(|_| QCashUtxoError::InvalidMetadata)?;
+        Ok((ids, amount))
+    }
+}
+
+fn is_spendable_at(coin: &QCashUtxo, height: BlockHeight) -> bool {
+    coin.issued_height
+        .0
+        .checked_add(crate::ledger::QCASH_WITHDRAW_MATURITY as u64)
+        .is_some_and(|maturity_height| height.0 >= maturity_height)
 }

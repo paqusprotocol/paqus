@@ -51,6 +51,9 @@ pub enum ProtocolEventKind {
     CoinbasePaid {
         miner: Address,
         subsidy: Amount,
+    },
+    MinerFeeRevenue {
+        miner: Address,
         fees: Amount,
     },
 }

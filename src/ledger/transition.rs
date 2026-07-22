@@ -1,6 +1,7 @@
 use crate::block::Block;
 use crate::block::BlockHeight;
 use crate::consensus::supply::Amount;
+use crate::consensus::{Consensus, DIFFICULTY_START};
 use crate::crypto::Address;
 use crate::crypto::{BlockHash, StateRoot, TransactionHash};
 use crate::event::{ProtocolEvent, ProtocolEventKind};
@@ -183,9 +184,17 @@ impl Ledger {
                 ProtocolEventKind::CoinbasePaid {
                     miner: coinbase.to,
                     subsidy: coinbase.subsidy,
-                    fees: coinbase.fees,
                 },
             );
+            if coinbase.fees.0 > 0 {
+                emit(
+                    None,
+                    ProtocolEventKind::MinerFeeRevenue {
+                        miner: coinbase.to,
+                        fees: coinbase.fees,
+                    },
+                );
+            }
         }
 
         self.events_by_block.insert(block_hash, events);
@@ -221,13 +230,13 @@ impl Ledger {
     }
 
     pub fn validate_block(&self, block: &Block) -> Result<StateRoot, LedgerError> {
-        self.staged_after_validated_block(block)
+        self.staged_after_validated_block(block, true)
             .map(|(_, expected_state_root)| expected_state_root)
     }
 
     pub fn execute_block(&self, block: &Block) -> Result<(Ledger, BlockExecution), LedgerError> {
         let state_root_before = self.state_root();
-        let (mut staged, expected_state_root) = self.staged_after_validated_block(block)?;
+        let (mut staged, expected_state_root) = self.staged_after_validated_block(block, false)?;
         let mut committed_block = block.clone();
         if committed_block.state_root() == crate::crypto::Hash([0; crate::crypto::HASH_SIZE]) {
             committed_block.set_state_root(expected_state_root);
@@ -271,9 +280,15 @@ impl Ledger {
     pub(crate) fn staged_after_validated_block(
         &self,
         block: &Block,
+        enforce_proof_of_work: bool,
     ) -> Result<(Self, StateRoot), LedgerError> {
         block.validate()?;
         self.chain.validate_next_block(block)?;
+        if enforce_proof_of_work {
+            let expected_difficulty = self.expected_next_difficulty()?;
+            Consensus::new(crate::consensus::ConsensusConfig::new(expected_difficulty))?
+                .validate_proof_of_work(block)?;
+        }
 
         let mut staged = self.clone();
         // UTXO maturity is a consensus transition and must be committed by the
@@ -314,5 +329,29 @@ impl Ledger {
 
         staged.validate_supply()?;
         Ok((staged, expected_state_root))
+    }
+
+    fn expected_next_difficulty(&self) -> Result<u32, LedgerError> {
+        let Some(tip_height) = self.chain.tip_height() else {
+            return Ok(DIFFICULTY_START);
+        };
+        if tip_height == crate::block::Height(0) {
+            return Ok(DIFFICULTY_START);
+        }
+        let tip = self
+            .chain
+            .block(&tip_height)
+            .ok_or(LedgerError::InvalidParent)?;
+        let anchor = self
+            .chain
+            .block(&crate::block::Height(1))
+            .ok_or(LedgerError::InvalidParent)?;
+        Ok(Consensus::with_default_config().asert_difficulty(
+            anchor.difficulty(),
+            anchor.timestamp(),
+            anchor.height(),
+            tip.timestamp(),
+            tip.height(),
+        )?)
     }
 }

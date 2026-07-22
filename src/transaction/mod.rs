@@ -5,7 +5,9 @@ use crate::crypto::{Address, PublicKey, Signature};
 use crate::crypto::{TransactionHash, WitnessTransactionHash};
 use crate::crypto::{address_from_public_key, verify};
 pub use crate::error::TransactionError;
+use crate::genesis::CURRENT_CHAIN_PARAMS;
 use borsh::{BorshDeserialize, BorshSerialize};
+use static_assertions::const_assert;
 
 pub mod qcash;
 pub use qcash::{QCashTransaction, QCashTransactionKind, SignedQCashTransaction};
@@ -22,18 +24,9 @@ pub enum TransactionFamily {
     QCash,
 }
 
-/// Maximum canonical unified envelope size. Authorization is the largest family.
+/// Maximum canonical unified envelope size.
 pub const MAX_PROTOCOL_TRANSACTION_SIZE: usize = qcash::MAX_QCASH_TX_SIZE + 1;
-
-impl TransactionFamily {
-    /// Canonical Borsh enum tag used by `SignedProtocolTransaction`.
-    pub const fn envelope_tag(self) -> u8 {
-        match self {
-            Self::Transfer => 0,
-            Self::QCash => 1,
-        }
-    }
-}
+const_assert!(MAX_TX_SIZE <= qcash::MAX_QCASH_TX_SIZE);
 
 impl SignedProtocolTransaction {
     pub fn family(&self) -> TransactionFamily {
@@ -205,6 +198,28 @@ impl ValidityWindow {
 }
 
 const TRANSACTION_SIGNATURE_DOMAIN: &[u8] = b"PAQUSCORE_TX_V1";
+
+#[derive(BorshSerialize)]
+struct TransactionSigningContext {
+    chain_id: u16,
+    protocol_version: u8,
+    genesis_hash: [u8; crate::crypto::HASH_SIZE],
+    payload: Vec<u8>,
+}
+
+pub(crate) fn chain_bound_signing_bytes(domain: &[u8], payload: Vec<u8>) -> Vec<u8> {
+    let context = TransactionSigningContext {
+        chain_id: CURRENT_CHAIN_PARAMS.chain_id,
+        protocol_version: CURRENT_CHAIN_PARAMS.protocol_version,
+        genesis_hash: CURRENT_CHAIN_PARAMS.genesis.hash,
+        payload,
+    };
+    let context_bytes = crate::codec::canonical_bytes(&context);
+    let mut bytes = Vec::with_capacity(domain.len() + context_bytes.len());
+    bytes.extend_from_slice(domain);
+    bytes.extend_from_slice(&context_bytes);
+    bytes
+}
 pub const TRANSACTION_VERSION: u8 = 1;
 pub const MAX_BATCH_OUTPUTS: usize = 64;
 
@@ -321,10 +336,18 @@ impl Transaction {
         self.validity.validate_at(height)
     }
 
+    /// Validates structure while accepting a caller timestamp for API symmetry.
+    ///
+    /// Transfer transaction time validity is height-based through
+    /// `ValidityWindow`; `timestamp` is signed metadata and is not a mempool
+    /// or consensus clock bound here.
     pub fn validate_at(&self, _now: u64) -> Result<(), TransactionError> {
         self.validate()
     }
 
+    /// Validates structure at a block height. The timestamp parameter is kept
+    /// for call-site symmetry with block-level validation; transfer validity is
+    /// height-based.
     pub fn validate_at_height(
         &self,
         _now: u64,
@@ -342,12 +365,7 @@ impl Transaction {
     }
 
     pub fn signing_bytes(&self) -> Vec<u8> {
-        let payload_bytes = self.to_bytes();
-        let mut bytes =
-            Vec::with_capacity(TRANSACTION_SIGNATURE_DOMAIN.len() + payload_bytes.len());
-        bytes.extend_from_slice(TRANSACTION_SIGNATURE_DOMAIN);
-        bytes.extend_from_slice(&payload_bytes);
-        bytes
+        chain_bound_signing_bytes(TRANSACTION_SIGNATURE_DOMAIN, self.to_bytes())
     }
 }
 
@@ -382,17 +400,7 @@ impl SignedTransaction {
 
     pub fn validate(&self) -> Result<(), TransactionError> {
         self.transaction.validate()?;
-        let serialized_size = self.serialized_size();
-        if serialized_size > MAX_TX_SIZE {
-            return Err(TransactionError::TransactionTooLarge);
-        }
-        if self.witness.public_key.0.iter().all(|byte| *byte == 0) {
-            return Err(TransactionError::EmptyPublicKey);
-        }
-        if self.witness.signature.0.iter().all(|byte| *byte == 0) {
-            return Err(TransactionError::EmptySignature);
-        }
-        Ok(())
+        self.validate_witness_and_size()
     }
 
     pub fn validate_for_height(
@@ -400,21 +408,7 @@ impl SignedTransaction {
         height: crate::block::BlockHeight,
     ) -> Result<(), TransactionError> {
         self.transaction.validate_for_height(height)?;
-
-        let serialized_size = self.serialized_size();
-        if serialized_size > MAX_TX_SIZE {
-            return Err(TransactionError::TransactionTooLarge);
-        }
-
-        if self.witness.public_key.0.iter().all(|byte| *byte == 0) {
-            return Err(TransactionError::EmptyPublicKey);
-        }
-
-        if self.witness.signature.0.iter().all(|byte| *byte == 0) {
-            return Err(TransactionError::EmptySignature);
-        }
-
-        Ok(())
+        self.validate_witness_and_size()
     }
 
     pub fn validate_at(&self, now: u64) -> Result<(), TransactionError> {
@@ -427,20 +421,21 @@ impl SignedTransaction {
         height: crate::block::BlockHeight,
     ) -> Result<(), TransactionError> {
         self.transaction.validate_at_height(now, height)?;
+        self.validate_witness_and_size()
+    }
 
-        let serialized_size = self.serialized_size();
-        if serialized_size > MAX_TX_SIZE {
+    fn validate_witness_and_size(&self) -> Result<(), TransactionError> {
+        if self.serialized_size() > MAX_TX_SIZE {
             return Err(TransactionError::TransactionTooLarge);
         }
-
+        // Cheap sentinel checks only; full key/signature validity is enforced
+        // by `verify_signature`.
         if self.witness.public_key.0.iter().all(|byte| *byte == 0) {
             return Err(TransactionError::EmptyPublicKey);
         }
-
         if self.witness.signature.0.iter().all(|byte| *byte == 0) {
             return Err(TransactionError::EmptySignature);
         }
-
         Ok(())
     }
 
@@ -484,8 +479,7 @@ impl SignedTransaction {
     }
 
     pub fn validate_signed_at(&self, now: u64) -> Result<(), TransactionError> {
-        self.transaction.validate_at(now)?;
-        self.validate_signed()
+        self.validate_signed_at_height(now, crate::block::Height(0))
     }
 
     pub fn validate_signed_at_height(
@@ -511,10 +505,7 @@ impl SignedTransaction {
     }
 
     pub fn wtxid(&self) -> WitnessTransactionHash {
-        crate::codec::family_witness_transaction_hash(
-            TransactionFamily::Transfer,
-            &signed_transaction_bytes(self),
-        )
+        SignedProtocolTransaction::Transfer(self.clone()).wtxid()
     }
 
     pub fn stripped_size(&self) -> usize {

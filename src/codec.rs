@@ -5,7 +5,7 @@ use crate::error::CodecError;
 use crate::event::{MAX_PROTOCOL_EVENT_SIZE, ProtocolEvent};
 use crate::transaction::{
     QCashTransaction, SignedProtocolTransaction, SignedQCashTransaction, SignedTransaction,
-    Transaction, TransactionFamily,
+    Transaction,
 };
 use borsh::{BorshDeserialize, BorshSerialize};
 
@@ -52,17 +52,6 @@ pub fn signed_protocol_transaction_hash(
     )
 }
 
-/// Hashes canonical signed-family bytes with their unified envelope tag.
-pub fn family_witness_transaction_hash(
-    family: TransactionFamily,
-    signed_family_bytes: &[u8],
-) -> WitnessTransactionHash {
-    let mut bytes = Vec::with_capacity(1 + signed_family_bytes.len());
-    bytes.push(family.envelope_tag());
-    bytes.extend_from_slice(signed_family_bytes);
-    WitnessTransactionHash(domain_hash(HashDomain::WitnessTransaction, &bytes).0)
-}
-
 pub fn protocol_event_bytes(event: &ProtocolEvent) -> Vec<u8> {
     canonical_bytes(event)
 }
@@ -103,10 +92,7 @@ pub fn transaction_hash(transaction: &Transaction) -> TransactionHash {
 }
 
 pub fn signed_transaction_hash(transaction: &SignedTransaction) -> WitnessTransactionHash {
-    family_witness_transaction_hash(
-        TransactionFamily::Transfer,
-        &signed_transaction_bytes(transaction),
-    )
+    signed_protocol_transaction_hash(&SignedProtocolTransaction::Transfer(transaction.clone()))
 }
 
 pub fn block_header_hash(header: &BlockHeader) -> BlockHash {

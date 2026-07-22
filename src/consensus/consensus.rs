@@ -1,8 +1,7 @@
 use crate::block::Block;
 use crate::block::{BlockHeight, Height};
 use crate::crypto::{
-    BlockHash, HASH_SIZE, Hash, PreviousHash, ProofOfWorkHash, hash_meets_difficulty,
-    sha3_512_proof_of_work_hash,
+    BlockHash, HASH_SIZE, Hash, ProofOfWorkHash, hash_meets_difficulty, sha3_512_proof_of_work_hash,
 };
 
 use crate::error::ConsensusError;
@@ -15,16 +14,15 @@ pub const BLOCK_TIME: u32 = 5 * MINUTE;
 pub const BLOCKS_PER_DAY: u64 = DAY as u64 / BLOCK_TIME as u64;
 pub const BLOCKS_PER_YEAR: u64 = 365 * BLOCKS_PER_DAY;
 pub const MIN_DIFFICULTY: u32 = 1;
-/// Bootstrap work target for protocol v2. At roughly 100 kH/s, 25 leading zero
-/// bits produces a block in about 5.6 minutes on average.
-pub const DIFFICULTY_START: u32 = 25;
+pub const DIFFICULTY_START: u32 = 1;
 pub const DIFFICULTY_ADJUSTMENT_INTERVAL: u64 = 1;
-pub const ASERT_HALF_LIFE: u64 = 2 * DAY as u64;
+pub const ASERT_HALF_LIFE: u64 = 1 * HOUR as u64;
+pub const DIFFICULTY_ALGORITHM: &str = "asert-bits-v2";
 pub const MAX_FUTURE_TIME: u32 = 2 * MINUTE;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ConsensusConfig {
-    pub difficulty: u32,
+    difficulty: u32,
 }
 
 impl Default for ConsensusConfig {
@@ -35,9 +33,19 @@ impl Default for ConsensusConfig {
     }
 }
 
+impl ConsensusConfig {
+    pub fn new(difficulty: u32) -> Self {
+        Self { difficulty }
+    }
+
+    pub fn difficulty(&self) -> u32 {
+        self.difficulty
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Consensus {
-    pub config: ConsensusConfig,
+    config: ConsensusConfig,
 }
 
 impl Consensus {
@@ -51,6 +59,19 @@ impl Consensus {
 
     pub fn with_default_config() -> Self {
         Self::new(ConsensusConfig::default()).expect("default consensus config should be valid")
+    }
+
+    #[cfg(test)]
+    pub(crate) fn new_unchecked_for_test(config: ConsensusConfig) -> Self {
+        Self { config }
+    }
+
+    pub fn config(&self) -> ConsensusConfig {
+        self.config
+    }
+
+    pub fn difficulty(&self) -> u32 {
+        self.config.difficulty()
     }
 
     pub fn validate_genesis_block(&self, block: &Block) -> Result<(), ConsensusError> {
@@ -104,13 +125,13 @@ impl Consensus {
     ) -> Result<(), ConsensusError> {
         block.validate_at(now)?;
         self.validate_next_block_linkage(block, tip.height(), tip.hash())?;
-        if block.timestamp() < tip.timestamp() {
+        if block.timestamp() <= tip.timestamp() {
             return Err(ConsensusError::InvalidTimestamp);
         }
         self.validate_proof_of_work(block)
     }
 
-    fn validate_next_block_linkage(
+    pub(crate) fn validate_next_block_linkage(
         &self,
         block: &Block,
         tip_height: BlockHeight,
@@ -139,14 +160,14 @@ impl Consensus {
     }
 
     pub fn validate_proof_of_work(&self, block: &Block) -> Result<(), ConsensusError> {
-        if self.config.difficulty == 0 {
-            return Ok(());
-        }
-
-        if block.difficulty() != self.config.difficulty {
+        if block.difficulty() != self.difficulty() {
             return Err(ConsensusError::UnexpectedDifficulty);
         }
 
+        self.validate_claimed_proof_of_work(block)
+    }
+
+    pub fn validate_claimed_proof_of_work(&self, block: &Block) -> Result<(), ConsensusError> {
         let hash = proof_of_work_hash(block)?;
         self.validate_proof_of_work_hash_with_difficulty(&hash, block.difficulty())
     }
@@ -155,7 +176,7 @@ impl Consensus {
         &self,
         hash: &ProofOfWorkHash,
     ) -> Result<(), ConsensusError> {
-        self.validate_proof_of_work_hash_with_difficulty(hash, self.config.difficulty)
+        self.validate_proof_of_work_hash_with_difficulty(hash, self.difficulty())
     }
 
     pub fn validate_proof_of_work_hash_with_difficulty(
@@ -205,7 +226,11 @@ impl Consensus {
         let difficulty = (anchor_difficulty as i128)
             .saturating_mul(FRACTION_SCALE)
             .saturating_add(exponent);
-        let rounded = difficulty.saturating_add(ROUNDING) / FRACTION_SCALE;
+        let rounded = if difficulty >= 0 {
+            difficulty.saturating_add(ROUNDING) / FRACTION_SCALE
+        } else {
+            difficulty.saturating_sub(ROUNDING) / FRACTION_SCALE
+        };
 
         Ok(rounded.clamp(MIN_DIFFICULTY as i128, u32::MAX as i128) as u32)
     }
@@ -215,9 +240,4 @@ fn proof_of_work_hash(block: &Block) -> Result<ProofOfWorkHash, ConsensusError> 
     let header_bytes =
         borsh::to_vec(&block.header).expect("block header serialization should not fail");
     Ok(sha3_512_proof_of_work_hash(&header_bytes))
-}
-
-#[allow(dead_code)]
-fn _previous_hash_type_marker(hash: PreviousHash) -> PreviousHash {
-    hash
 }
