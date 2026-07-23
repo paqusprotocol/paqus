@@ -12,6 +12,10 @@ impl Work {
     pub const ZERO: Self = Self([0; 8]);
     pub const MAX: Self = Self([u64::MAX; 8]);
 
+    pub fn to_be_limbs(self) -> [u64; 8] {
+        self.0
+    }
+
     pub fn pow2(exponent: u32) -> Self {
         if exponent >= 512 {
             return Self::MAX;
