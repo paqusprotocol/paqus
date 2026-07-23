@@ -365,16 +365,12 @@ impl Ledger {
                         transaction_commitment,
                     )?
                 };
-                let credited = Amount(
-                    amount
-                        .0
-                        .checked_sub(transaction.fee.0)
-                        .ok_or(LedgerError::SupplyOverflow)?,
-                );
-                self.accounts
+                let account = self
+                    .accounts
                     .get_mut(&transaction.signer)
-                    .ok_or(LedgerError::AccountNotFound)?
-                    .increment_nonce();
+                    .ok_or(LedgerError::AccountNotFound)?;
+                account.debit_at(transaction.fee, height)?;
+                account.increment_nonce();
                 let spendable_height = crate::block::Height(
                     height
                         .0
@@ -383,7 +379,7 @@ impl Ledger {
                 self.accounts
                     .entry(*recipient)
                     .or_insert_with(|| Account::new(*recipient, Amount(0)))
-                    .credit_locked(credited, spendable_height, CreditSource::QCashDeposit)?;
+                    .credit_locked(amount, spendable_height, CreditSource::QCashDeposit)?;
             }
         }
         Ok(())

@@ -17,7 +17,6 @@ pub enum TransactionError {
     InvalidSignature,
     SenderAddressMismatch,
     InvalidQCashMetadata,
-    QCashFeeExceedsAmount,
     InvalidQCashRecipient,
     InvalidValidityWindow,
     NotYetValid,
@@ -60,9 +59,6 @@ impl fmt::Display for TransactionError {
             }
             TransactionError::InvalidQCashMetadata => {
                 f.write_str("transaction contains invalid QCash metadata")
-            }
-            TransactionError::QCashFeeExceedsAmount => {
-                f.write_str("QCash deposit fee must be less than deposited amount")
             }
             TransactionError::InvalidQCashRecipient => {
                 f.write_str("QCash deposit recipient is invalid")

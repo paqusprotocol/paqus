@@ -173,12 +173,6 @@ impl QCashTransaction {
                             .ok_or(TransactionError::InvalidQCashMetadata)?,
                     )
                     .map_err(|_| TransactionError::InvalidQCashMetadata)?;
-                let amount = metadata
-                    .amount()
-                    .map_err(|_| TransactionError::InvalidQCashMetadata)?;
-                if self.fee.0 >= amount.0 {
-                    return Err(TransactionError::QCashFeeExceedsAmount);
-                }
                 if *recipient == Address([0; 20]) {
                     return Err(TransactionError::InvalidQCashRecipient);
                 }
