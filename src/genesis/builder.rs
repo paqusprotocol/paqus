@@ -34,7 +34,7 @@ pub const PAQUS_CHAIN: ChainParams = ChainParams {
     coin_name: "XPQ",
     unit_name: "paqus",
     protocol_stage: "Mainnet",
-    protocol_version: 1,
+    protocol_version: 2,
     pow_algorithm: "sha3-512",
     difficulty_algorithm: DIFFICULTY_ALGORITHM,
     network_magic: [0x58, 0x50, 0x51, 0x02],
@@ -50,8 +50,8 @@ pub const PAQUS_CHAIN: ChainParams = ChainParams {
 /// Frozen mainnet identity for the canonical encoding and block format.
 /// Never update this value without defining a new protocol version and chain identity.
 pub const FROZEN_GENESIS_HASH: [u8; HASH_SIZE] = [
-    114, 17, 46, 249, 73, 147, 179, 137, 71, 125, 74, 121, 54, 65, 95, 221, 244, 127, 138, 175,
-    218, 177, 249, 113, 30, 60, 214, 211, 78, 135, 18, 93,
+    200, 10, 184, 245, 57, 78, 89, 124, 174, 181, 117, 242, 226, 77, 41, 210, 90, 113, 116, 37, 67,
+    86, 14, 234, 180, 104, 39, 150, 195, 151, 127, 152,
 ];
 
 pub const CURRENT_CHAIN_PARAMS: ChainParams = PAQUS_CHAIN;
@@ -170,4 +170,14 @@ pub fn chain_identity_commitment(params: ChainParams) -> Hash {
         network_magic: params.network_magic,
     };
     domain_hash(HashDomain::ChainParams, &canonical_bytes(&identity))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn frozen_genesis_hash_matches_current_chain_params() {
+        validate_genesis_identity(CURRENT_CHAIN_PARAMS).unwrap();
+    }
 }

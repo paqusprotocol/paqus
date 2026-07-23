@@ -395,14 +395,6 @@ impl Ledger {
         self.apply_transaction_at(&signed_transaction.transaction, crate::block::Height(0))
     }
 
-    #[cfg(test)]
-    pub(crate) fn apply_transaction(
-        &mut self,
-        transaction: &crate::transaction::Transaction,
-    ) -> Result<(), LedgerError> {
-        self.apply_transaction_at(transaction, crate::block::Height(0))
-    }
-
     pub fn apply_block(&mut self, block: Block) -> Result<(), LedgerError> {
         let (mut staged, _) = self.staged_after_validated_block(&block, true)?;
         if !block.is_genesis() && block.state_root() == Hash([0; HASH_SIZE]) {

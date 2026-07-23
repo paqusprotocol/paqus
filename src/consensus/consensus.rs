@@ -61,11 +61,6 @@ impl Consensus {
         Self::new(ConsensusConfig::default()).expect("default consensus config should be valid")
     }
 
-    #[cfg(test)]
-    pub(crate) fn new_unchecked_for_test(config: ConsensusConfig) -> Self {
-        Self { config }
-    }
-
     pub fn config(&self) -> ConsensusConfig {
         self.config
     }
